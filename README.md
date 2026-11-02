@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/brand/banner.png" alt="Hush Relay: private chat, voice and video on a relay you own" width="100%"></p>
+<p align="center"><img src="assets/brand/banner.png" alt="Lullwire Relay: private chat, voice and video on a relay you own" width="100%"></p>
 
 # Lullwire Relay, formerly Hush Relay
 
@@ -6,7 +6,7 @@
 
 [**Download**](https://github.com/altrudev/Lullwire-Relay/releases/latest) · [Install & use](#install) · [Host a relay](docs/SELF-HOSTING.md) · [Security](SECURITY.md) · [Protocol](docs/PROTOCOL.md)
 
-Hush Relay is two pieces:
+Lullwire Relay is two pieces:
 
 - **The app** is a web page (a PWA) made of plain HTML and JavaScript. You open it in a browser and can install it to your home screen, or install the **Android app**, which bundles the same code. All encryption happens there.
 - **The relay** is a dumb mailbox. It stores encrypted envelopes until the recipient picks them up, and it can't read them or see who sent them. It comes in two interchangeable versions: a **single Go binary** with the app built in (standard library only, no dependencies) and **one PHP file** for shared hosting.
@@ -32,22 +32,22 @@ You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi o
 
 ## Install
 
-<p align="center"><img src="assets/brand/install-and-use.png" alt="How to install and use Hush Relay" width="540"></p>
+<p align="center"><img src="assets/brand/install-and-use.png" alt="How to install and use Lullwire Relay" width="540"></p>
 
 **To chat** (everyone you invite), pick one:
 
 | | How | Notes |
 |---|---|---|
-| **Android app** | Download `hush-relay-<version>.apk` from [Releases](https://github.com/altrudev/Hush-Relay/releases/latest) and open it | No store. Check the SHA-256 from the release; official builds are signed by Valentyn Rukhaylo (ALTRU.dev), certificate `38:40:AF:64:…:00:CD:53:19` ([full fingerprint](docs/SELF-HOSTING.md#android-app)) |
+| **Android app** | Download `hush-relay-<version>.apk` from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) and open it | No store. Check the SHA-256 from the release; official builds are signed by Valentyn Rukhaylo (ALTRU.dev), certificate `38:40:AF:64:…:00:CD:53:19` ([full fingerprint](docs/SELF-HOSTING.md#android-app)) |
 | **Web app (PWA)** | Open an invite link, then **Install** or **Add to Home Screen** | Android, Windows, Linux, ChromeOS, macOS; on iPhone use Safari's **Add to Home Screen** |
 | **Any browser** | Just open the invite link | Calls need a recent Chrome, Edge, Firefox or Safari |
 
-**To host** (one person per group): download the relay for your device from [Releases](https://github.com/altrudev/Hush-Relay/releases/latest) (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./hush-relay -new-path`, and put it behind HTTPS. The [self-hosting guide](docs/SELF-HOSTING.md) covers a VPS, a spare phone, shared hosting and Tor.
+**To host** (one person per group): download the relay for your device from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./hush-relay -new-path`, and put it behind HTTPS. The [self-hosting guide](docs/SELF-HOSTING.md) covers a VPS, a spare phone, shared hosting and Tor.
 
 ## Quick start (local, 1 minute)
 
 ```bash
-git clone https://github.com/altrudev/Hush-Relay.git hush-relay
+git clone https://github.com/altrudev/Lullwire-Relay.git hush-relay
 cd hush-relay
 go build -o hush-relay ./cmd/hush-relay && ./hush-relay     # Go 1.22+
 # or, with PHP 7.4+:  ./scripts/serve.sh
@@ -149,14 +149,14 @@ Issues and pull requests are welcome, especially security review. Contributors a
 
 Copyright © 2026 Valentyn Rukhaylo (ALTRU.dev).
 
-Original Hush Relay code and documentation are licensed under the **GNU Affero General Public License v3.0 or later** (SPDX: `AGPL-3.0-or-later`). The complete license is in [LICENSE](LICENSE). For hosted modified versions, AGPL section 13 may require providing the corresponding source to network users; see [LICENSES.md](LICENSES.md) for an overview. AGPL permits commercial use provided its terms are followed.
+Original Lullwire Relay code and documentation are licensed under the **GNU Affero General Public License v3.0 or later** (SPDX: `AGPL-3.0-or-later`). The complete license is in [LICENSE](LICENSE). For hosted modified versions, AGPL section 13 may require providing the corresponding source to network users; see [LICENSES.md](LICENSES.md) for an overview. AGPL permits commercial use provided its terms are followed.
 
-Vendored components remain under their respective MIT or Apache-2.0 terms, detailed in [LICENSES.md](LICENSES.md) and the accompanying notice files. The "Hush Relay" name and logo are not licensed as trademarks: forks that ship modified builds need their own name and icon ([brand guide](assets/brand/README.md)). No separate proprietary license is granted by this repository; commercial licenses are available from the maintainer.
+Vendored components remain under their respective MIT or Apache-2.0 terms, detailed in [LICENSES.md](LICENSES.md) and the accompanying notice files. The "Lullwire Relay" name and logo are not licensed as trademarks: forks that ship modified builds need their own name and icon ([brand guide](assets/brand/README.md)). No separate proprietary license is granted by this repository; commercial licenses are available from the maintainer.
 
 ## Author
 
 <img src="assets/brand/logo-mark-512.png" alt="" width="56" align="left">
 
-**Hush Relay** is created, designed and maintained by **Valentyn (Val) Rukhaylo**, [ALTRU.dev](https://altru.dev) — *Code for Humanity*.<br>
+**Lullwire Relay** is created, designed and maintained by **Valentyn (Val) Rukhaylo**, [ALTRU.dev](https://altru.dev) — *Code for Humanity*.<br>
 Issues, ideas and security reports are welcome.
 <br clear="left">
