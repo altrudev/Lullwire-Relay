@@ -77,9 +77,18 @@ with sync_playwright() as pw:
     except Exception: sock = False
     check(sock, 'delivery uses the live connection')
 
-    # App lock.
+    # App lock: a new vault key, and everything re-encrypted with it (review 2026-11-02 #12).
+    snap = lambda: A.evaluate("""() => new Promise(res => { const r = indexedDB.open('lullwire'); r.onsuccess = () => {
+        const t = r.result.transaction(['meta', 'kv']); const o = {};
+        t.objectStore('meta').get('vault').onsuccess = e => o.h = e.target.result;
+        t.objectStore('kv').get('me').onsuccess = e => o.me = Array.from(e.target.result.d).join(',');
+        t.oncomplete = () => { r.result.close(); res(o); }; }; })""")
+    before = snap()
     home(A); A.click('#settingsBtn'); A.fill('#lp1', 'correct horse 1'); A.fill('#lp2', 'correct horse 1'); A.click('#lockOnBtn')
     A.wait_for_selector('#lockOn:not([hidden])', timeout=20000)
+    after = snap()
+    check(before['h']['mode'] == 'plain' and after['h']['mode'] == 'pass' and 'mk' not in after['h'] and before['me'] != after['me'],
+          'turning on the lock re-encrypts everything with a new key')
     A.reload(); A.wait_for_selector('#vLock:not([hidden])', timeout=15000)
     A.fill('#unlockIn', 'wrong horse 1'); A.click('#unlockBtn'); time.sleep(3)
     check(A.is_visible('#vLock') and any('not right' in d for d in dialogs), 'locked after a restart; a wrong passphrase is refused')
@@ -97,6 +106,38 @@ with sync_playwright() as pw:
     chat_with(A, 'Bob'); A.wait_for_selector('.m.in:has-text("both on lullwire")', timeout=15000)
     say(A, 'v4 now'); B.wait_for_selector('.m.in:has-text("v4 now")', timeout=15000)
     check(True, 'after both update: messages both ways')
+
+    # An interrupted move into the vault resumes (review 2026-11-02 #4): a 0.5 store with
+    # 3000 messages, the page closed while moving, then opened again.
+    ctx = b.new_context(bypass_csp=True); S = ctx.new_page(); S.on('dialog', lambda d: d.accept())
+    with open(os.path.join(SITE, 'seed.html'), 'w') as f: f.write('<!doctype html><title>seed</title>')
+    S.goto(U.replace('index.html', 'seed.html'))
+    S.evaluate("""async () => {
+      const hex = b => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
+      const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+      const kp = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+      const bob = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+      const secret = hex(crypto.getRandomValues(new Uint8Array(32)));
+      const box = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))).slice(0, 32);
+      const bobRaw = await crypto.subtle.exportKey('raw', bob.publicKey), bobId = hex(await crypto.subtle.digest('SHA-256', bobRaw)).slice(0, 32);
+      const db = await new Promise(res => { const r = indexedDB.open('hush2', 1); r.onupgradeneeded = () => { const d = r.result;
+        d.createObjectStore('kv'); d.createObjectStore('contacts', { keyPath: 'id' });
+        d.createObjectStore('messages', { keyPath: 'id', autoIncrement: true }).createIndex('contact', 'contact'); }; r.onsuccess = () => res(r.result); });
+      const t = db.transaction(['kv', 'contacts', 'messages'], 'readwrite');
+      t.objectStore('kv').put({ priv: kp.privateKey, pub: b64(await crypto.subtle.exportKey('raw', kp.publicKey)), secret, box, name: 'Seed',
+        relay: location.origin + '/relay.php', inviteTok: 'tok' }, 'me');
+      t.objectStore('contacts').put({ id: bobId, pub: b64(bobRaw), box: '1'.repeat(32), relay: location.origin + '/relay.php', name: 'Bobby',
+        unread: 0, ts: Date.now(), verified: false, blocked: false, sessions: {}, active: null, last: '' });
+      for (let i = 0; i < 3000; i++) t.objectStore('messages').put({ contact: bobId, dir: 'in', txt: 'old ' + i, ts: Date.now() });
+      await new Promise(r => t.oncomplete = r); db.close(); }""")
+    S.goto(U); time.sleep(0.6); S.close()          # closed while moving
+    S = ctx.new_page(); S.on('dialog', lambda d: d.accept()); S.goto(U)
+    S.wait_for_function("document.body.dataset.ready === '1'", timeout=60000)
+    S.wait_for_selector('.contact:has-text("Bobby")', timeout=15000)
+    count = S.evaluate("""() => new Promise(res => { const r = indexedDB.open('lullwire'); r.onsuccess = () => {
+        const q = r.result.transaction('messages').objectStore('messages').count(); q.onsuccess = () => { r.result.close(); res(q.result); }; }; })""")
+    dbs = S.evaluate("indexedDB.databases().then(d => d.map(x => x.name))")
+    check(count == 3000 and 'hush2' not in dbs, 'an interrupted move resumes: %d of 3000 messages, databases %s' % (count, dbs))
     b.close()
 
 real = [e for e in errs if '400 (Bad Request)' not in e]

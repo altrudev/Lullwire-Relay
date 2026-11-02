@@ -35,6 +35,8 @@ bash -n scripts/*.sh && echo "  ok   shell scripts"
 
 echo "== core"
 RELAY="http://localhost:$PORT/relay.php" node tests/core.test.js
+echo "== compatibility with Hush Relay 0.5"
+node tests/compat.test.js
 
 echo "== server hardening"
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$PORT/relay.php?a=put&box=0123456789abcdef0123456789abcdef" --data-binary @web/icon.svg)

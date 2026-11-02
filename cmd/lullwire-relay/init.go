@@ -145,7 +145,14 @@ func runInit(in io.Reader, out io.Writer, args []string) error {
 	if a.private {
 		fmt.Fprintf(&b, "path = %s\njoin-code = %s\n", a.path, a.code)
 	}
-	if err := os.WriteFile(target, []byte(b.String()), 0o600); err != nil {
+	// Written to a new file (mode 0600) and renamed into place, so an existing file's
+	// looser permissions never apply to the join code.
+	tmp := target + ".new"
+	_ = os.Remove(tmp)
+	if err := os.WriteFile(tmp, []byte(b.String()), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, target); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "\nSaved %s\n", target)

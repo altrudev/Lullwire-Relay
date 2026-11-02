@@ -39,7 +39,7 @@ Please report privately through GitHub's **Report a vulnerability** button (the 
 
 1. **No one-time prekeys.** A session's first messages get forward secrecy once the signed prekey they used is deleted (prekeys are replaced every 14 days and kept 45). Until then, someone who records traffic and later steals the device can read those first messages. Sessions with contacts still on Hush Relay 0.5, or whose prekey we hold is too old, open the older way, which depends on identity keys alone. Ongoing conversations always have forward secrecy.
 2. **Key-compromise impersonation.** Someone who steals your identity key can pose as anyone *to you*.
-3. **The relay sees metadata:** IP addresses, timing, which mailbox receives mail, the size class, and whether mail is waiting. Cover traffic hides timing from the network, not from the relay, and doesn't hide that you use Lullwire or are online. Use a relay you trust, Tor, or a tunnel that hides client IPs if this matters.
+3. **The relay sees metadata:** IP addresses, timing, which mailbox receives mail, the size class, and whether mail is waiting. Deliveries don't name the sender, but a relay can often guess by matching IP addresses and timing between your receiving and sending connections. Cover traffic hides timing from the network, not from the relay, and doesn't hide that you use Lullwire or are online. Use a relay you trust, Tor, or a tunnel that hides client IPs if this matters.
 4. **Web delivery.** On a first visit, the browser trusts whatever code the server sends. After that, an installed web app runs only releases signed with the pinned key, but browsers always let a server replace the service worker (`sw.js`) itself, so a fully compromised server can still ship new code. The Android app, or a pinned IPFS CID, avoids this. Whoever holds the release signing key can sign anything; it is kept offline.
 5. **Shared origins.** Browser storage is per origin. Don't host the app on an origin that also runs other people's code (for example, a shared cPanel domain with other apps).
 6. **Device linking** uses a 12-digit comparison code (about 40 bits) inside a 10-minute window. Compare the code; never approve a request you didn't start.
@@ -157,3 +157,24 @@ A separate auditor reviewed the entire repository: the crypto core, both relays,
 | 46 | Low | SECURITY.md said the relay can't tell which contact is calling | Corrected (known limit 8) |
 | 47 | Info | During a move, your join code could be sent to a relay named in the scanned code; Go static checks were case-sensitive; envelope size documented wrongly; unpadded large payloads, a shared recovery salt and outer-layer-only sender fields were undocumented | Join code goes only to your own relay; checks compare in lower case; PROTOCOL corrected; known limits 12–15 added |
 
+### 2026-11-02: review of 0.6 (Lullwire Relay)
+
+A separate reviewer was given the 0.6 changes (protocol v4, the vault, the live connection, signed releases, the setup wizard, the Android background service) and the threat model, and wrote working proofs of concept. No critical issues; the ratchet, the X3DH-style opening, card signatures, vault record binding and the Android shell held up. Fixed before release, each with a regression test:
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 48 | High | Mail connections with made-up secrets grew the relay's memory without limit (also on invite-only relays), and made those mailboxes "known" again | Only existing mailboxes are remembered (capped); non-members can't open mail connections on invite-only relays; new live connections are rate limited |
+| 49 | Medium | The service worker decided "newer" from one fetch of release.json and staged a second fetch, so an older signed release could be installed | One fetch, verified, then required to be newer |
+| 50 | Medium | A new contact was added from an invite whose card didn't verify, or had been removed, without a warning | Invites with a bad card are refused; card-less (0.5) invites warn first |
+| 51 | Medium | An interrupted move from the 0.5 database lost messages and left it on disk | A "migrating" flag set first; the move starts over until complete; hush2 deleted only after success |
+| 52 | Medium | Deliveries over the mail connection told the relay which mailbox sent to which | A separate send connection that identifies nothing |
+| 53 | Low–Medium | Cover traffic could be told apart from real traffic (no replies or acks, different sizes) | Noise has the same sizes, replies and acknowledgements as real traffic |
+| 54 | Low | After a contact restored, they didn't get your card again for up to 14 days | A message without `qa` resets what the contact is known to hold |
+| 55 | Low | Session ids of any length were stored (strangers could bloat storage) | Exactly 22 base64url characters |
+| 56 | Low | After a local storage error the ratchet had already moved, so the retried message was lost (since #12); unacknowledged mail stalled a live connection | Messages are decrypted on a copy committed only after storing; the app reconnects after a storage error |
+| 57 | Low | The PHP relay ignored `HUSH_TRUSTED_PROXIES` / `HUSH_FORWARDED_HEADER` defined in relay.config.php | Read again |
+| 58 | Low | `onion = yes` in a settings file meant "off"; replacing a settings file kept its old permissions | Unknown values stop the relay; the file is written 0600 and renamed into place |
+| 59 | Low | Turning on the app lock kept the vault key that had been stored in clear | A new key, everything re-encrypted in one transaction |
+| 60 | Low | Deliveries over the live connection skipped the relay-wide cap on heavy work | They share it |
+| 61 | Info | Page loads to unlisted paths, and app files missing from the cache, fell back to the network under a signed release | The verified app for every page load in scope; missing files fail closed |
+| 62 | Info | The compatibility suite wasn't run by tests/run.sh; a Keystore failure fell back silently | Both run and reported |

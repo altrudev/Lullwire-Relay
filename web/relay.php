@@ -79,11 +79,11 @@ function hexarg($in, $k, $len) {
 // Extra proxies can be trusted with LULLWIRE_TRUSTED_PROXIES="10.0.0.2,10.0.0.3".
 function client_ip() {
     $remote = $_SERVER['REMOTE_ADDR'] ?? '';
-    $trusted = array_filter(array_map('trim', explode(',', (string)(getenv('LULLWIRE_TRUSTED_PROXIES') ?: getenv('HUSH_TRUSTED_PROXIES') ?: (defined('LULLWIRE_TRUSTED_PROXIES') ? LULLWIRE_TRUSTED_PROXIES : '')))));
+    $trusted = array_filter(array_map('trim', explode(',', (string)(getenv('LULLWIRE_TRUSTED_PROXIES') ?: getenv('HUSH_TRUSTED_PROXIES') ?: (defined('LULLWIRE_TRUSTED_PROXIES') ? LULLWIRE_TRUSTED_PROXIES : (defined('HUSH_TRUSTED_PROXIES') ? HUSH_TRUSTED_PROXIES : ''))))));
     if (!preg_match('/^(127\.|::1$|::ffff:127\.)/', $remote) && !in_array($remote, $trusted, true)) return $remote;
     // Which header the proxy uses: X-Forwarded-For (default) or e.g. CF-Connecting-IP.
     // Only the chosen one is read, so clients can't pick a header the proxy passes through.
-    $hdr = strtoupper(str_replace('-', '_', (string)(getenv('LULLWIRE_FORWARDED_HEADER') ?: getenv('HUSH_FORWARDED_HEADER') ?: (defined('LULLWIRE_FORWARDED_HEADER') ? LULLWIRE_FORWARDED_HEADER : 'X-Forwarded-For'))));
+    $hdr = strtoupper(str_replace('-', '_', (string)(getenv('LULLWIRE_FORWARDED_HEADER') ?: getenv('HUSH_FORWARDED_HEADER') ?: (defined('LULLWIRE_FORWARDED_HEADER') ? LULLWIRE_FORWARDED_HEADER : (defined('HUSH_FORWARDED_HEADER') ? HUSH_FORWARDED_HEADER : 'X-Forwarded-For')))));
     if ($hdr !== 'X_FORWARDED_FOR') {
         $v = trim((string)($_SERVER['HTTP_' . $hdr] ?? ''));
         return filter_var($v, FILTER_VALIDATE_IP) ? $v : $remote;

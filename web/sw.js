@@ -36,14 +36,18 @@ const newer = (a, b) => { // is version a newer than b?
 };
 async function fingerprint() { return hex(await crypto.subtle.digest('SHA-256', b64d(RELEASE_KEY))).slice(0, 16).toUpperCase(); }
 
-// Fetch release.json, check its signature, then fetch and check every file into a new cache.
-async function stage() {
+// Fetch release.json once and check its signature; everything after uses only these bytes.
+async function signedRelease() {
   const rel = await (await fetch('release.json', { cache: 'no-store' })).json();
   if (!rel || !rel.m || !rel.s) throw new Error('unsigned');
   const key = await crypto.subtle.importKey('raw', b64d(RELEASE_KEY), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
   if (!(await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, b64d(rel.s), enc.encode(rel.m)))) throw new Error('bad signature');
   const m = JSON.parse(rel.m);
-  if (m.v !== 1 || m.key !== RELEASE_KEY || !m.files || !m.version) throw new Error('bad manifest');
+  if (m.v !== 1 || m.key !== RELEASE_KEY || !m.files || typeof m.version !== 'string' || !/^\d+(\.\d+)*$/.test(m.version)) throw new Error('bad manifest');
+  return m;
+}
+// Fetch and check every file of a verified manifest into a new cache.
+async function stage(m) {
   const name = 'lullwire-' + m.version + '-' + Date.now();
   const cache = await caches.open(name);
   try {
@@ -63,7 +67,7 @@ self.addEventListener('install', e => {
     if (!RELEASE_KEY) { await (await caches.open(LEGACY)).addAll(SHELL).catch(() => {}); return; }
     const st = await getState();
     if (st.cache && st.key === RELEASE_KEY) return; // already running a verified release
-    const s = await stage(); // throws: this worker is not installed, and the app runs from the network
+    const s = await stage(await signedRelease()); // throws: this worker is not installed, and the app runs from the network
     await setState({ ...s, key: RELEASE_KEY, checked: Date.now(), warn: null });
   })());
   self.skipWaiting();
@@ -86,12 +90,10 @@ function checkUpdate(force) {
     if (!st.cache || (!force && Date.now() - (st.checked || 0) < CHECK_EVERY)) return;
     st.checked = Date.now();
     try {
-      const rel = await (await fetch('release.json', { cache: 'no-store' })).json();
-      const m = rel && rel.m ? JSON.parse(rel.m) : null;
-      if (m && m.version === st.version && !st.warn) { await setState(st); return; }
-      if (m && !newer(m.version, st.version) && m.version !== st.version) throw new Error('an older release (' + m.version + ')');
-      const s = await stage();
-      if (s.version === st.version) { await caches.delete(s.cache); st.warn = null; await setState(st); return; }
+      const m = await signedRelease();
+      if (m.version === st.version || (st.next && m.version === st.next.version)) { st.warn = null; await setState(st); return; }
+      if (!newer(m.version, st.next ? st.next.version : st.version)) throw new Error('an older release (' + m.version + ')');
+      const s = await stage(m);
       if (st.next) await caches.delete(st.next.cache);
       st.next = s; st.warn = null;
       await setState(st);
@@ -121,12 +123,15 @@ self.addEventListener('fetch', e => {
       await setState(st); caches.delete(old);
     }
     if (req.mode === 'navigate') e.waitUntil(checkUpdate(false));
-    const file = fileOf(req.url);
-    if (st.cache && st.files && st.files.includes(file)) {
+    if (!st.cache) return fetch(req); // not installed yet
+    // Every page load inside the app's scope gets the verified app, never a page from the
+    // server, and app files come only from the verified cache (fail closed, not open).
+    const file = req.mode === 'navigate' ? 'index.html' : fileOf(req.url);
+    if (st.files && st.files.includes(file)) {
       const hit = await (await caches.open(st.cache)).match(file);
-      if (hit) return hit;
+      return hit || new Response('This file is missing from the verified copy of the app. Reload to repair it.', { status: 503 });
     }
-    return fetch(req); // not part of the app (e.g. a cover page): nothing to verify
+    return fetch(req); // not part of the app (release.json, for instance): nothing to verify
   })());
 });
 

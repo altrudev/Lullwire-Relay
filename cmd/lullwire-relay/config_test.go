@@ -37,6 +37,14 @@ func TestInitWritesSettings(t *testing.T) {
 			t.Errorf("next steps miss %q:\n%s", want, o)
 		}
 	}
+	// Replacing a file with looser permissions still leaves it private.
+	_ = os.Chmod(conf, 0o644)
+	if err := runInit(strings.NewReader("1\nchat.example.org\n\n9124\n\ny\n"), &out, []string{"-config", conf}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(conf); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("replaced settings file is %v", fi.Mode().Perm())
+	}
 	// An existing file is kept unless you say so.
 	if err := runInit(strings.NewReader("4\n\n\n\n"), &out, []string{"-config", conf}); err == nil {
 		t.Fatal("replaced an existing settings file without asking")
@@ -77,7 +85,11 @@ func TestSettingPriority(t *testing.T) {
 	if _, _, err := loadConfig([]string{"--config", filepath.Join(t.TempDir(), "missing.conf")}); err == nil {
 		t.Fatal("a missing settings file that was asked for by name must be an error")
 	}
-	if !isTrue("1") || !isTrue("true") || isTrue("") || isTrue("no") {
+	if !isTrue("1") || !isTrue("true") || !isTrue("yes") || !isTrue("on") || isTrue("") || isTrue("no") || isTrue("off") {
 		t.Fatal("isTrue")
+	}
+	// Review 2026-11-02 #11: an unrecognised on/off value is an error, never a quiet "off".
+	if _, err := parseConfig(strings.NewReader("onion = maybe\n")); err == nil {
+		t.Fatal("onion = maybe accepted")
 	}
 }

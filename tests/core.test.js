@@ -226,6 +226,20 @@ async function protocolV4(){
   const fakeCard=view(B.pub); fakeCard.card={s:(await H.genKP()).pub,t:Date.now(),b:B.box,r:R}; fakeCard.v4=true;
   ok(await rejects(recv(B,{},await encryptFor(A,fakeCard,{t:'msg',txt:'?'}))),'message sealed to an unknown prekey refused');
   ok(await rejects(H.decryptFrom(B,view(A.pub),{v:4,s:'x',c:'AA',h:{dh:A.pub,pn:0,n:0,e:A.pub,sp:fakeCard.card.s}})),'opening that names an unknown prekey refused');
+  // Review 2026-11-02 #8: session ids have a fixed shape (no 30 MB ids stored by strangers).
+  const big=await H.openOuter(B,await encryptFor(A,view(B.pub),{t:'msg',txt:'x'})); big.s='A'.repeat(100000);
+  ok(await rejects(H.decryptFrom(B,view(A.pub),big)),'over-long session id refused');
+  // Review #7: after a contact restores (no card of ours), our card is sent again.
+  const Al=await H.newIdentity('Al',R), Bo=await H.newIdentity('Bo',R);
+  const alBo=view(Bo.pub); await H.takeCard(alBo,Bo.box,Bo.relay,await H.makeCard(Bo));
+  const boBook={}; await recv(Bo,boBook,await encryptFor(Al,alBo,{t:'msg',txt:'1'}));
+  await H.takeCard(boBook[Al.pub],Al.box,Al.relay,(await H.openOuter(Bo,await encryptFor(Al,alBo,{t:'msg',txt:'2'}))).q||await H.makeCard(Al));
+  await recv(Al,{[Bo.pub]:alBo},await encryptFor(Bo,boBook[Al.pub],{t:'msg',txt:'3'}));
+  ok(alBo.qAck===Al.spks[0].t,'card confirmed before the restore');
+  const restored=view(Al.pub); // Bo on a new device: knows Al's key, not Al's card
+  await recv(Al,{[Bo.pub]:alBo},await encryptFor(Bo,restored,{t:'reset',id:'r'}));
+  const again=await H.openOuter(Bo,await encryptFor(Al,alBo,{t:'msg',txt:'4'}));
+  ok(alBo.qAck===undefined && again.q && again.q.t===Al.spks[0].t,'card sent again to a contact that no longer holds it');
   // Signed invites: a mailbox swapped in an intercepted invite no longer verifies.
   const inv={p:B.pub,b:B.box,r:B.relay,q:qB};
   ok(await H.checkCard(inv.p,inv.b,inv.r,inv.q) && !(await H.checkCard(inv.p,E.box,inv.r,inv.q)),'invite card detects a swapped mailbox');

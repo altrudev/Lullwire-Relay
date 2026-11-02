@@ -109,6 +109,11 @@ func parseConfig(r io.Reader) (map[string]string, error) {
 		if uq, err := strconv.Unquote(v); err == nil {
 			v = uq
 		}
+		if k == "onion" && v != "" {
+			if _, err := parseBool(v); err != nil {
+				return nil, fmt.Errorf("line %d: onion must be true or false", n)
+			}
+		}
 		cfg[k] = v
 	}
 	return cfg, sc.Err()
@@ -133,7 +138,23 @@ func setting(cfg map[string]string, name, def string) string {
 	return def
 }
 
+// parseBool accepts the usual spellings (true/false, 1/0, yes/no, on/off).
+func parseBool(v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true, nil
+	case "0", "f", "false", "no", "n", "off", "":
+		return false, nil
+	}
+	return false, fmt.Errorf("not a yes/no value: %q", v)
+}
+
+// isTrue reads an on/off setting. Anything unrecognised stops the relay rather than
+// quietly meaning "off" (onion mode off would weaken the rate limits behind Tor).
 func isTrue(v string) bool {
-	b, err := strconv.ParseBool(strings.TrimSpace(v))
-	return err == nil && b
+	b, err := parseBool(v)
+	if err != nil {
+		log.Fatalf("setting %q: use true or false", v)
+	}
+	return b
 }

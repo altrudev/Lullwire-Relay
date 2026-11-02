@@ -298,7 +298,7 @@ async function encryptFor(me, c, msg) {
 async function decryptFrom(me, c, inner) {
   const h = inner.h;
   if (!h || typeof h.dh !== 'string' || !Number.isInteger(h.n) || !Number.isInteger(h.pn) || h.n < 0 || h.pn < 0 ||
-      typeof inner.s !== 'string' || typeof inner.c !== 'string' || (inner.v !== 2 && inner.v !== 4) ||
+      typeof inner.s !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(inner.s) || typeof inner.c !== 'string' || (inner.v !== 2 && inner.v !== 4) ||
       (h.e !== undefined && (typeof h.e !== 'string' || typeof h.sp !== 'string'))) throw new Error('bad header');
   const isNew = !c.sessions[inner.s];
   // A session id is only ever started once: a relay replaying an old opening message is refused.
@@ -325,7 +325,10 @@ async function decryptFrom(me, c, inner) {
     c.active = tie && c.active < inner.s ? c.active : inner.s;
   } else if (!cur) c.active = inner.s;
   c.lastTs = Math.max(c.lastTs || 0, Math.min(msg.ts, Date.now() + MAX_CLOCK_SKEW));
-  if (inner.v === 4) { c.v4 = true; if (Number.isSafeInteger(inner.qa)) c.qAck = inner.qa; }
+  if (inner.v === 4) c.v4 = true;
+  // Which of our cards they hold. A contact that doesn't say (an older app, or a fresh
+  // copy after a restore) gets our card again with the next message.
+  c.qAck = inner.v === 4 && Number.isSafeInteger(inner.qa) ? inner.qa : undefined;
   const ids = Object.keys(c.sessions).sort((a, b) => c.sessions[b].ts - c.sessions[a].ts);
   for (const id of ids.slice(4)) if (id !== c.active) delete c.sessions[id];
   return msg;
@@ -785,7 +788,12 @@ if (typeof document !== 'undefined') (() => {
       c.request = false;
     } else {
       c = newContact(id, o.p, o.b, o.r, o.n);
-      await takeCard(c, o.b, o.r, o.q);
+      if (o.q !== undefined) {
+        // A Lullwire invite is signed: if its address doesn't match the signature, someone changed it.
+        if (!(await takeCard(c, o.b, o.r, o.q))) throw new Error('This invite was changed or damaged on the way: its signature doesn\'t match. Ask ' + c.name + ' for a new one.');
+      } else if (!confirm('This invite comes from an older app (Hush Relay), so its address isn\'t signed. Add ' + c.name + ' anyway? Compare safety codes once you\'re chatting.')) {
+        throw new Error('Not added');
+      }
       contacts.set(id, c); fresh = true;
     }
     await saveContact(c); scheduleSync();
@@ -934,7 +942,10 @@ if (typeof document !== 'undefined') (() => {
     const id = await contactId(inner.f);
     let callMsg = null, changed = false;
     await lock(id, async () => {
-      let c = contacts.get(id), isNew = false;
+      // Work on a copy: if storing fails, the contact's ratchet hasn't moved and the
+      // envelope (left on the relay) decrypts again on the next try.
+      const orig = contacts.get(id);
+      let c = orig && structuredClone(orig), isNew = false;
       if (c && c.blocked) return;
       if (!c) {
         if (!isBox(inner.b) || !isRelay(inner.r)) throw new Error('bad sender data');
@@ -953,9 +964,7 @@ if (typeof document !== 'undefined') (() => {
         for (const old of reqs.slice(0, Math.max(0, reqs.length - 199))) { contacts.delete(old.id); await dropContact(old.id); }
         if ([...contacts.values()].filter(x => !x.request && !x.blocked).length >= 5000) return;
       }
-      contacts.set(id, c);
       const dup = typeof msg.id === 'string' && seen.has(id + ':' + msg.id);
-      if (typeof msg.id === 'string') seen.add(id + ':' + msg.id);
       if (msg.t === 'msg' && typeof msg.txt === 'string' && !dup) {
         await putMessage({ contact: id, dir: 'in', txt: msg.txt.slice(0, 4000), ts: Date.now(), mid: msg.id });
         c.ts = Date.now(); c.last = msg.txt.slice(0, 80);
@@ -982,6 +991,10 @@ if (typeof document !== 'undefined') (() => {
         callMsg = { c, msg };
       }
       await saveContact(c);
+      if (orig) { Object.assign(orig, c); c = orig; } // keep one object per contact (the UI holds it)
+      contacts.set(id, c);
+      if (typeof msg.id === 'string') seen.add(id + ':' + msg.id);
+      if (callMsg) callMsg.c = c;
       changed = true;
       if (!c.request) scheduleSync();
     });
@@ -992,46 +1005,72 @@ if (typeof document !== 'undefined') (() => {
   function refreshViews() { if (current && !$('#vChat').hidden) renderMsgs(); else if (!$('#vList').hidden) renderList(); }
 
   // ----- live delivery -----
-  // Preferred: one long-lived WebSocket to your relay that carries incoming mail,
-  // acknowledgements, outgoing mail to the same relay and (optionally) cover traffic.
+  // Preferred: two long-lived WebSockets to your relay. The mail connection (opened
+  // with your mailbox secret) receives and acknowledges; the send connection carries
+  // deliveries to contacts on the same relay and says nothing about who you are, so the
+  // relay can't tie what you send to your mailbox (as with plain HTTPS deliveries).
+  // Optional cover traffic on both looks like real deliveries, replies and acks.
   // Fallback: long-polling, for relays (PHP) or proxies without WebSocket support.
-  const mail = { ws: null, reqs: new Map(), seq: 1, fails: 0, pollUntil: 0 };
+  const mail = { ws: null, send: null, reqs: new Map(), seq: 1, fails: 0, pollUntil: 0 };
   const awake = () => document.visibilityState === 'visible' || !!activeCall || (has('setBackground') && me && me.bg !== false);
   const hexBytes = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));
+  const ENV_MIN = 1024 + 93; // a 1 KiB-class envelope; real ones add a random tail of up to 128 bytes
+  function sendFrame(kind, boxBytes, body) {
+    const ws = mail.send, r = mail.seq = (mail.seq + 1) >>> 0 || 1;
+    const head = new Uint8Array(21); head[0] = kind; new DataView(head.buffer).setUint32(1, r); head.set(boxBytes, 5);
+    return new Promise(res => {
+      mail.reqs.set(r, res); ws.send(concat(head, body));
+      setTimeout(() => { if (mail.reqs.delete(r)) res(null); }, 10000);
+    });
+  }
   async function putMail(c, blob) {
-    const ws = mail.ws;
-    if (ws && ws.readyState === 1 && c.relay === me.relay) {
-      const r = mail.seq = (mail.seq + 1) >>> 0 || 1;
-      const head = new Uint8Array(21); head[0] = 1; new DataView(head.buffer).setUint32(1, r); head.set(hexBytes(c.box), 5);
-      const ok = await new Promise(res => {
-        mail.reqs.set(r, res); ws.send(concat(head, blob));
-        setTimeout(() => { if (mail.reqs.delete(r)) res(null); }, 10000);
-      });
+    if (mail.send && mail.send.readyState === 1 && c.relay === me.relay) {
+      const ok = await sendFrame(1, hexBytes(c.box), blob);
       if (ok !== null) return ok; // no answer: send it again over HTTPS (a duplicate is refused by the ratchet)
     }
     const r = await fetch(c.relay + '?a=put&box=' + c.box, { method: 'POST', headers: TP, body: blob });
     return r.ok;
   }
+  // The send connection: no identity, just deliveries (and cover traffic) with answers.
+  function openSend(url) {
+    let ws;
+    try { ws = new WebSocket(url); } catch { return null; }
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => ws.send(JSON.stringify({ op: 'send' }));
+    ws.onmessage = ev => {
+      if (typeof ev.data !== 'string') return;
+      let m; try { m = JSON.parse(ev.data); } catch { return; }
+      if (m.op === 'ready') mail.send = ws;
+      else if (m.op === 'put') { const res = mail.reqs.get(m.r); if (res) { mail.reqs.delete(m.r); res(!!m.ok); } }
+    };
+    ws.onclose = ws.onerror = () => {
+      if (mail.send === ws) mail.send = null;
+      for (const res of mail.reqs.values()) res(null);
+      mail.reqs.clear();
+    };
+    return ws;
+  }
   function runSocket() {
     return new Promise(resolve => {
-      let ws, ready = false, done = false, chain = Promise.resolve(), acks = [], ackTimer = null, coverTimer = null;
+      let ws, sendWs = null, ready = false, done = false, chain = Promise.resolve(), acks = [], ackTimer = null, coverTimer = null;
       const finish = how => {
         if (done) return; done = true;
         clearInterval(watch); clearTimeout(openTimer); clearTimeout(coverTimer); clearTimeout(ackTimer);
         if (mail.ws === ws) mail.ws = null;
-        for (const res of mail.reqs.values()) res(null);
-        mail.reqs.clear();
         try { ws.close(); } catch {}
+        try { sendWs && sendWs.close(); } catch {}
         resolve(how);
       };
-      try { ws = new WebSocket(liveURL(me.relay)); } catch { return resolve('fail'); }
+      const url = liveURL(me.relay);
+      try { ws = new WebSocket(url); } catch { return resolve('fail'); }
       ws.binaryType = 'arraybuffer';
       const openTimer = setTimeout(() => finish('fail'), 12000);
       const flushAcks = () => { ackTimer = null; if (acks.length && ws.readyState === 1) { ws.send(JSON.stringify({ op: 'ack', ids: acks })); acks = []; } };
-      // Cover traffic: random-sized noise at random times, shaped like messages. The relay drops it.
+      const ack = id => { acks.push(id); if (!ackTimer) ackTimer = setTimeout(flushAcks, 100 + randInt(100)); };
+      // Cover traffic out: a delivery-shaped frame at random times, answered like one.
       const cover = () => {
         coverTimer = setTimeout(() => {
-          if (ws.readyState === 1 && me && me.cover) { const n = 1024 + randInt(128) + 93; const f = rand(n); f[0] = 0; ws.send(f); }
+          if (mail.send && mail.send.readyState === 1 && me && me.cover) sendFrame(0, rand(16), rand(ENV_MIN + randInt(128))).catch(() => {});
           cover();
         }, 20000 + randInt(70000));
       };
@@ -1041,20 +1080,21 @@ if (typeof document !== 'undefined') (() => {
         let m; try { m = JSON.parse(ev.data); } catch { return; }
         if (m.op === 'ready') {
           ready = true; mail.ws = ws; mail.fails = 0; clearTimeout(openTimer); cover();
+          sendWs = openSend(url);
           if ($('#toast').textContent === 'Offline — reconnecting…') toast('');
         } else if (m.op === 'error') finish(ready ? 'ok' : 'fail');
-        else if (m.op === 'put') { const res = mail.reqs.get(m.r); if (res) { mail.reqs.delete(m.r); res(!!m.ok); } }
+        else if (m.op === 'n') ack(hex(rand(11))); // cover traffic in: answered with an ack, like real mail
         else if (m.op === 'm' && typeof m.id === 'string' && typeof m.d === 'string') {
           chain = chain.then(async () => {
             if (done || paused || !me) return; // left on the relay; it comes again on the next connection
             let changed = false;
-            try { changed = await receive(fromStd(m.d)); acks.push(m.id); }
+            try { changed = await receive(fromStd(m.d)); ack(m.id); }
             catch (e) {
-              // Undecryptable or forged mail is discarded; a local storage failure keeps it on the relay to retry.
-              if (STORAGE_ERRORS.includes(e && e.name)) { console.warn('storage error, will retry', e); return; }
-              acks.push(m.id); console.warn('dropped message', e);
+              // Undecryptable or forged mail is discarded. A local storage failure leaves it on the
+              // relay; reconnecting makes the relay send it again.
+              if (STORAGE_ERRORS.includes(e && e.name)) { console.warn('storage error, will retry', e); finish('ok'); return; }
+              ack(m.id); console.warn('dropped message', e);
             }
-            if (!ackTimer) ackTimer = setTimeout(flushAcks, 150);
             if (changed) refreshViews();
           });
         }
@@ -1513,6 +1553,7 @@ if (typeof document !== 'undefined') (() => {
     if (has('vaultWrap')) {
       const w = AND.vaultWrap(b64e(mk));
       if (w) return { v: 1, mode: 'android', w };
+      console.warn('Android Keystore unavailable; the vault key is stored without it (Settings shows this)');
     }
     return { v: 1, mode: 'plain', mk };
   }
@@ -1531,7 +1572,8 @@ if (typeof document !== 'undefined') (() => {
     if (p1.length < 8) return alert('Use a passphrase of at least 8 characters');
     if (p1 !== p2) return alert('Passphrases don\'t match');
     toast('Locking…', 0);
-    await setHeader({ v: 1, mode: 'pass', ...(await wrapWithPass(mkRaw, p1)) });
+    const mk = rand(32);
+    await rekeyVault({ v: 1, mode: 'pass', ...(await wrapWithPass(mk, p1)) }, mk);
     if (has('vaultForget')) AND.vaultForget();
     $('#lp1').value = $('#lp2').value = ''; toast('App lock is on'); renderSettings();
   };
@@ -1679,7 +1721,7 @@ if (typeof document !== 'undefined') (() => {
     navigator.serviceWorker.addEventListener('controllerchange', ask);
   }
   // Delivery path, for tests and Settings.
-  window.__lullwireDelivery = () => mail.ws ? 'socket' : 'poll';
+  window.__lullwireDelivery = () => mail.ws ? (mail.send ? 'socket' : 'socket (receiving)') : 'poll';
 
   async function keepPrekeysFresh() { if (me && await rotatePrekeys(me)) await saveMe(); }
   function start() {
@@ -1700,32 +1742,71 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
-  // LEGACY(0.5): move the plaintext "hush2" store into the vault, once. Ratchet keys
-  // of 0.5 can't be exported, so sessions restart (contacts get a "reset").
-  async function migrateLegacy() {
-    const old = await openLegacyDB(); if (!old) return false;
-    try {
-      const get = (store, fn) => txOn(old, store, 'readonly', fn);
-      const oldMe = await get('kv', s => s.get('me'));
-      if (!oldMe || !oldMe.priv) return false;
-      const jwk = await crypto.subtle.exportKey('jwk', oldMe.priv);
-      const { priv, ...rest } = oldMe;
-      const m = { ...rest, ...(await keysFromJwk(jwk)), spks: [] };
-      await rotatePrekeys(m);
-      await saveIdentity(jwk);
-      me = m; await saveMe();
-      for (const c of (await get('contacts', s => s.getAll())) || []) {
-        c.sessions = {}; c.active = null; c.opened = null; c.needReset = true;
-        await saveContact(c);
-      }
-      const msgs = ((await get('messages', s => s.getAll())) || []).sort((a, b) => a.id - b.id);
-      for (const x of msgs) { const { id, ...m2 } = x; await putMessage(m2); }
-      console.info('moved ' + msgs.length + ' messages from the 0.5 store into the encrypted vault');
-      return true;
-    } finally {
-      old.close();
-      if (me) indexedDB.deleteDatabase('hush2');
+  // LEGACY(0.5): move the plaintext "hush2" store into the vault. Ratchet keys of 0.5
+  // can't be exported, so sessions restart (contacts get a "reset"). The move can be
+  // interrupted (the page closed, storage full): a "migrating" flag stays set until it has
+  // completed, every start before then redoes it from scratch, and "hush2" is deleted
+  // only after a complete move.
+  async function migrateLegacy(old) {
+    const get = (store, fn) => txOn(old, store, 'readonly', fn);
+    const oldMe = await get('kv', s => s.get('me'));
+    if (!oldMe || !oldMe.priv) { await tx('meta', 'readwrite', s => s.delete('migrating')); old.close(); return false; }
+    await tx('meta', 'readwrite', s => s.put(true, 'migrating'));
+    await new Promise((res, rej) => { // start clean: drop anything a previous, interrupted attempt wrote
+      const t = db.transaction(['kv', 'contacts', 'messages'], 'readwrite');
+      for (const n of ['kv', 'contacts', 'messages']) t.objectStore(n).clear();
+      t.oncomplete = res; t.onerror = () => rej(t.error);
+    });
+    blinds.clear();
+    const jwk = await crypto.subtle.exportKey('jwk', oldMe.priv);
+    const { priv, ...rest } = oldMe;
+    const m = { ...rest, ...(await keysFromJwk(jwk)), spks: [] };
+    await rotatePrekeys(m);
+    await saveIdentity(jwk);
+    me = m; await saveMe();
+    for (const c of (await get('contacts', s => s.getAll())) || []) {
+      c.sessions = {}; c.active = null; c.opened = null; c.needReset = true;
+      await saveContact(c);
     }
+    const msgs = ((await get('messages', s => s.getAll())) || []).sort((a, b) => a.id - b.id);
+    for (const x of msgs) { const { id, ...m2 } = x; await putMessage(m2); }
+    await tx('meta', 'readwrite', s => s.delete('migrating'));
+    old.close();
+    indexedDB.deleteDatabase('hush2');
+    console.info('moved ' + msgs.length + ' messages from the 0.5 store into the encrypted vault');
+    return true;
+  }
+
+  // App lock on: a new master secret, and every record re-encrypted with it, all in one
+  // transaction with the new header, so copies of the old (unlocked) files are no help.
+  async function rekeyVault(header, newMk) {
+    const nk = await vaultKeys(newMk), nb = new Map();
+    const blindNew = async id => { let x = nb.get(id); if (!x) { x = await blindId(nk, id); nb.set(id, x); } return x; };
+    const all = n => tx(n, 'readonly', s => s.getAll());
+    const keys = await tx('kv', 'readonly', s => s.getAllKeys());
+    const kvs = await all('kv'), cs = await all('contacts'), ms = await all('messages');
+    const kvOut = [], cOut = [], mOut = [], byBlind = new Map();
+    for (let i = 0; i < keys.length; i++) kvOut.push([keys[i], { d: await sealRecord(nk, 'kv|' + keys[i], await openRecord(vk, 'kv|' + keys[i], kvs[i].d)) }]);
+    for (const r of cs) {
+      const c = await openRecord(vk, 'contacts|' + r.id, r.d), id = await blindNew(c.id);
+      byBlind.set(r.id, id);
+      cOut.push({ old: r.id, rec: { id, d: await sealRecord(nk, 'contacts|' + id, c) } });
+    }
+    for (const r of ms) {
+      const c = byBlind.get(r.c); if (!c) continue; // messages of deleted contacts are dropped
+      mOut.push({ id: r.id, c, d: await sealRecord(nk, 'messages|' + c, await openRecord(vk, 'messages|' + r.c, r.d)) });
+    }
+    await new Promise((res, rej) => {
+      const t = db.transaction(['meta', 'kv', 'contacts', 'messages'], 'readwrite');
+      const k = t.objectStore('kv'), c = t.objectStore('contacts'), m = t.objectStore('messages');
+      for (const [key, v] of kvOut) k.put(v, key);
+      for (const x of cOut) { c.delete(x.old); c.put(x.rec); }
+      for (const x of mOut) m.put(x);
+      t.objectStore('meta').put(header, 'vault');
+      t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+    });
+    vaultHdr = header; mkRaw = newMk; vk = nk; blinds.clear();
+    for (const [id, b] of nb) blinds.set(id, b);
   }
 
   (async () => {
@@ -1742,11 +1823,13 @@ if (typeof document !== 'undefined') (() => {
     watchServiceWorker();
     db = await openVaultDB();
     vaultHdr = await tx('meta', 'readonly', s => s.get('vault'));
+    const legacy = await openLegacyDB();
     if (!vaultHdr) {
       const mk = rand(32);
+      if (legacy) await tx('meta', 'readwrite', s => s.put(true, 'migrating')); // before the header, so a restart resumes
       await setHeader(await defaultHeader(mk));
       await useVault(mk);
-      await migrateLegacy();
+      if (legacy) await migrateLegacy(legacy);
     } else {
       let mk;
       try { mk = vaultHdr.mode === 'pass' ? await unlockScreen() : await unwrapHeader(vaultHdr); }
@@ -1757,7 +1840,9 @@ if (typeof document !== 'undefined') (() => {
       }
       $('#unlockForm').hidden = false;
       await useVault(mk);
-      me = await loadMe();
+      if (legacy && await tx('meta', 'readonly', s => s.get('migrating'))) await migrateLegacy(legacy); // finish an interrupted move
+      else if (legacy) { legacy.close(); indexedDB.deleteDatabase('hush2'); } // left over from a completed move
+      if (!me) me = await loadMe();
     }
     for (const c of await loadContacts()) contacts.set(c.id, c);
     document.body.dataset.ready = '1';

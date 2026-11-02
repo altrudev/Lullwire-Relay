@@ -56,6 +56,23 @@ with sync_playwright() as pw:
     home(A); A.wait_for_selector('.contact:has-text("Bob")', timeout=15000)
     print('  Alice sees Bob as a contact, not a request:', A.locator('.contact:has-text("Bob") .tag').count() == 0)
 
+    # 1b. Tampered invites (review 2026-11-02 #3): a swapped mailbox is refused; an invite
+    # without a signed card (as from Hush Relay 0.5) is added only after a warning.
+    import base64, json as _json
+    def tamper(link, fn):
+        head, data = link.split('#i=')
+        o = _json.loads(base64.urlsafe_b64decode(data + '=' * (-len(data) % 4))); fn(o)
+        return head + '#i=' + base64.urlsafe_b64encode(_json.dumps(o).encode()).decode().rstrip('=')
+    T = page(b, 'T'); create(T, 'Tess')
+    n0 = len(dialogs)
+    for lnk in (tamper(link, lambda o: o.update(b='0' * 32)), tamper(link, lambda o: o.pop('q'))):
+        home(T); T.click('#addLinkBtn'); T.fill('#addIn', lnk); T.click('#addBtn'); time.sleep(1.5)
+    d = dialogs[n0:]
+    print('1b swapped mailbox refused:', any('changed or damaged' in x for x in d), '| unsigned invite warned first:', any('older app' in x for x in d))
+    if not (any('changed or damaged' in x for x in d) and any('older app' in x for x in d)): errs.append('invite tamper checks: %s' % d)
+    home(T); n_alice = T.locator('.contact:has-text("Alice")').count()
+    if n_alice != 1: errs.append('expected exactly one Alice after the tampered invites, got %d' % n_alice)
+
     # 2. Carol already has a profile and adds Alice by scanning a picture of her QR.
     C = page(b, 'C'); create(C, 'Carol')
     C.click('#scanBtn'); C.set_input_files('#scanFile', S + 'invite.png'); C.wait_for_selector('#vChat:not([hidden])')

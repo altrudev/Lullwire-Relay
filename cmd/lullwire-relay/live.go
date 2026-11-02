@@ -14,6 +14,7 @@ package main
 //	{"op":"open","room":<64 hex>,"s":<mailbox secret>}  caller creates the room
 //	{"op":"join","room":<64 hex>}                        callee joins it
 //	{"op":"mail","s":<mailbox secret>,"cover":bool}       live mail instead (see mail.go)
+//	{"op":"send"}                                         deliveries (see mail.go)
 //
 // The relay answers {"op":"ready","peer":bool} and later {"op":"peer","here":bool}
 // as the other side arrives or leaves. After that, binary messages are forwarded.
@@ -361,8 +362,12 @@ func (r *Relay) serveLive(w http.ResponseWriter, req *http.Request) {
 	defer c.shutdown()
 	op, msg, err := c.readMessage(10 * time.Second)
 	var hello liveHello
-	if err == nil && op == 0x1 && json.Unmarshal(msg, &hello) == nil && hello.Op == "mail" {
-		r.serveMail(c, req, hello)
+	if err == nil && op == 0x1 && json.Unmarshal(msg, &hello) == nil && (hello.Op == "mail" || hello.Op == "send") {
+		if hello.Op == "mail" {
+			r.serveMail(c, req, hello)
+		} else {
+			r.serveSend(c, req)
+		}
 		return
 	}
 	if err != nil || op != 0x1 || !isHex(hello.Room, 64) {

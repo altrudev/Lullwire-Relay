@@ -15,14 +15,14 @@ Labels beginning with `hush/` or `hush-` are the historical names from Hush Rela
 
 - **Signed prekey (SPK):** a P-256 ECDH key pair. A new one is made every 14 days; each is kept for 45 days and then deleted. Senders use a prekey only while its card is less than 28 days old (the remaining 17 days cover mail waiting on a relay for up to 14 days, plus clock skew).
 - **Card:** `q = {s: spkPub, t: spkCreatedMs, g: sig}`, where `sig = ECDSA(identity, "lullwire/v4/card|" + pub + "|" + box + "|" + relay + "|" + s + "|" + t)`. It binds the mailbox, the relay address and the prekey to the identity. Relay addresses may not contain `|`, so the encoding is unambiguous. A card is accepted only with a valid signature, a `t` no more than a day in the future, and a `t` newer than the card already held. A newer valid card moves a contact to the mailbox and relay it names.
-- Cards travel in invites and inside messages. A message carries the sender's card until the recipient confirms holding it: v4 messages include `qa`, the `t` of the recipient's card that the sender holds, and the recipient stops attaching its card once `qa` matches.
+- Cards travel in invites and inside messages. A message carries the sender's card until the recipient confirms holding it: v4 messages include `qa`, the `t` of the recipient's card that the sender holds, and the recipient stops attaching its card once `qa` matches. A message without `qa` (v2, or a contact's fresh copy after a restore) means "send it again".
 - Cards are not stored in backups or recovery slots (size); contacts send theirs again after a restore.
 
 ## Invite
 
 `https://<app>/#i=` followed by `base64url(JSON {p: pub, b: box, r: relayURL, n: name, k: inviteToken, q: card, j?: joinCode})`. It travels in the URL fragment, so it never reaches a server.
 
-- `q` signs `b` and `r`: a mailbox swapped in an intercepted invite fails the signature. For a contact you already have, a newer signed card moves them without a question; an invite without a valid card (from Hush Relay 0.5) still asks before re-routing anyone.
+- `q` signs `b` and `r`: an invite whose card doesn't verify is refused (someone changed it). An invite without a card (from Hush Relay 0.5) is added only after a warning. For a contact you already have, a newer signed card moves them without a question; an unsigned one asks first.
 - `k` is 12 random bytes. Someone who adds you from your invite sends `{t: "hello", k}`; a matching token makes them a contact instead of a request, for the first 25 people per token (`me.inviteTok` is replaced when you make a new link).
 - `j` is your relay's join code when it is invite-only, so the person you invite can sign up there.
 - Inside the Android app, `<app>` is the web copy of the app your relay serves (the relay URL without its last path segment).
@@ -71,7 +71,7 @@ In v4 every field of the inner envelope is authenticated by the ratchet, so even
 **Other rules.**
 - Out-of-order messages: up to 200 skipped keys per step, 500 stored in total.
 - Decryption runs on a copy of the state, which is saved only if it succeeds.
-- Sessions are keyed by `sessionId`. Receiving on a session makes it the active one, and the 4 most recent are kept, so two people starting at the same time converge. A session id is only ever opened once (the last 300 are remembered), and opening messages older than the moment this copy of the profile was created are refused, so a relay can't replay old sessions.
+- `sessionId` must be 22 base64url characters (16 bytes). Sessions are keyed by `sessionId`. Receiving on a session makes it the active one, and the 4 most recent are kept, so two people starting at the same time converge. A session id is only ever opened once (the last 300 are remembered), and opening messages older than the moment this copy of the profile was created are refused, so a relay can't replay old sessions.
 
 Message bodies are JSON with an authenticated timestamp: `{t: "msg", id, txt, ts}`, `{t: "reset", id, ts, why?}`, `{t: "hello", k, ts}` or a call message (below). A reset is sent after a profile moves to a new device (ratchet state never travels) and, with `why: "upgrade"`, once after updating from Hush Relay 0.5 (whose ratchet keys can't be exported into the new encrypted storage).
 
@@ -96,20 +96,31 @@ Undelivered mail expires after 14 days. The relay keeps `sha256(t)`, never `t`.
 
 ## Live connection (Go relay)
 
-The app keeps one WebSocket open at `/live` (the relay URL with its last path segment replaced, `https` → `wss`). To a network observer it is one long-lived HTTPS connection to your server. The first text frame, within 10 seconds, is `{"op":"mail","s":secret,"cover":bool}`; the relay answers `{"op":"ready","mail":true}`. Then:
+The app keeps two WebSockets open at `/live` (the relay URL with its last path segment replaced, `https` → `wss`). To a network observer they are long-lived HTTPS connections to your server.
+
+**Mail connection** (receiving). The first text frame, within 10 seconds, is `{"op":"mail","s":secret,"cover":bool}`; the relay answers `{"op":"ready","mail":true}` (on an invite-only relay, only for member mailboxes). Then:
 
 | Direction | Frame | Meaning |
 |---|---|---|
 | relay → app | text `{"op":"m","id","d"}` | a pending or newly arrived envelope (base64) |
 | app → relay | text `{"op":"ack","ids":[...]}` | delete delivered mail |
+| relay → app | text `{"op":"n","id","d"}` | cover traffic (when `cover` was true): random bytes the size of a 1 KiB-class envelope; the app answers with an ack for a random id |
+
+An envelope is pushed once per connection; anything unacknowledged is pushed again on the next one (the app reconnects after a storage error for that reason). At most about 2 MiB is in flight unacknowledged.
+
+**Send connection** (delivering). It carries nothing that identifies the app: the first frame is `{"op":"send"}`, answered with `{"op":"ready","send":true}`. Deliveries therefore aren't tied to the sender's mailbox, just as with plain HTTPS deliveries; the relay can still guess by IP address and timing (known limit 3).
+
+| Direction | Frame | Meaning |
+|---|---|---|
 | app → relay | binary `0x01 ‖ requestId (4, BE) ‖ box (16) ‖ envelope` | deliver to a mailbox on this relay |
-| relay → app | text `{"op":"put","r":requestId,"ok":true}` or `{…,"e":status}` | result, with HTTP-like status codes (404, 413, 429, 507) |
-| app → relay | binary `0x00 ‖ anything` | cover traffic, dropped |
-| relay → app | text `{"op":"n","p":random}` | cover traffic (when `cover` was true) |
+| app → relay | binary `0x00 ‖ requestId (4) ‖ 16 random bytes ‖ random bytes` | cover traffic, sized like a 1 KiB-class delivery |
+| relay → app | text `{"op":"put","r":requestId,"ok":true}` or `{…,"e":status}` | result, with HTTP-like status codes (404, 413, 429, 503, 507); cover traffic gets `ok` too |
 
-Deliveries over the connection pass exactly the checks an HTTP `put` does. An envelope is pushed once per connection; anything unacknowledged is pushed again on the next one. At most about 2 MiB is in flight unacknowledged. A mail connection counts like a long-poll towards the per-client limit (6, or 2 per mailbox behind Tor). The relay pings at varying intervals (20 s ± 25%); 60 seconds without data or an answered ping ends the connection.
+Deliveries pass exactly the checks an HTTP `put` does, including the relay-wide cap on concurrent heavy work. Deliveries to contacts on other relays go over HTTPS.
 
-With cover traffic on, both sides send a noise frame shaped like a 1 KiB message at random intervals of 20–90 seconds (about 1 MB an hour), so someone watching the network can't tell real sends and deliveries from noise. Without the live connection (PHP relay, or a proxy that doesn't pass WebSockets), the app long-polls with randomised waits (14–20 s) and gaps.
+**Limits.** Each kind of connection counts like a long-poll towards the per-client limit (6 each, or 2 mail connections per mailbox behind Tor), and new connections are limited to 60 per client per minute (1,200 per minute relay-wide behind Tor). The relay remembers a mailbox for quicker answers only once mail has arrived for it. It pings at varying intervals (20 s ± 25%); 60 seconds without data or an answered ping ends a connection.
+
+**Cover traffic.** With it on, both directions carry noise shaped like the real traffic, with the same sizes, replies and acknowledgements, at random intervals of 20–90 seconds (about 1 MB an hour), so someone watching the network can't tell real sends and deliveries from noise. Without the live connections (PHP relay, or a proxy that doesn't pass WebSockets), the app long-polls with randomised waits (14–20 s) and gaps.
 
 ## Calls
 
@@ -157,11 +168,12 @@ Everything the app stores is in IndexedDB database `lullwire`, encrypted:
 - Each record is `AES-GCM(K_enc, JSON, AD = "lullwire/vault|" + store + "|" + key)`, so records can't be swapped between places. The identity key, the profile, prekeys, contacts (with their ratchet state) and every message are records.
 - Contacts and messages are indexed by `HMAC(K_blind, contactId)[0..32 hex]`, so the database reveals neither contact ids nor which messages belong to whom.
 - The only clear record is the vault header, saying how `MK` is protected: by the Android Keystore (`mode: "android"`, an AES-GCM key in the phone's keystore that can't be exported), by an app-lock passphrase (`mode: "pass"`, `AES-GCM(PBKDF2(passphrase, salt, 600 000), MK, AD = "lullwire/vault/pass")`), or stored as-is in a plain browser (`mode: "plain"`, where the browser has no safer place for it).
-- On first start after updating from Hush Relay 0.5, the plaintext database `hush2` is moved into the vault and deleted.
+- Turning on the app lock makes a new `MK` and re-encrypts every record with it, in one transaction with the new header.
+- On first start after updating from Hush Relay 0.5, the plaintext database `hush2` is moved into the vault. A `migrating` flag (set before anything else) makes an interrupted move start over on the next launch; `hush2` is deleted only after a complete move.
 
 ## Signed releases (web app)
 
-`web/release.json = {m: manifest JSON, s: ECDSA-P256-SHA256(releaseKey, m)}`, where the manifest is `{v: 1, version, key, files: {path: sha256hex}}` and lists every app file except `sw.js`. The release key's public half is pinned in `sw.js`. With a key pinned, the service worker serves the app only from a cache whose every file matched a signed manifest, and switches to a new release only if it is signed by the pinned key, complete, and has a higher version; it reports anything else to the page. See [RELEASING.md](RELEASING.md).
+`web/release.json = {m: manifest JSON, s: ECDSA-P256-SHA256(releaseKey, m)}`, where the manifest is `{v: 1, version, key, files: {path: sha256hex}}` and lists every app file except `sw.js`. The release key's public half is pinned in `sw.js`. With a key pinned, the service worker serves the app only from a cache whose every file matched a signed manifest, and switches to a new release only if it is signed by the pinned key, complete, and has a higher version; it reports anything else to the page. It fetches `release.json` once per check and uses only the bytes it verified. Every page load inside the app's scope gets the verified `index.html`, and app files are never fetched from the network once installed (a missing one is an error, not a fallback). See [RELEASING.md](RELEASING.md).
 
 ## Legacy and removal plan
 

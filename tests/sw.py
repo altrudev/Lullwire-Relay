@@ -34,6 +34,12 @@ with sync_playwright() as pw:
     p.reload(); p.wait_for_function("document.body.dataset.ready === '1'")
     check(p.evaluate("window.__tampered") is None, 'unsigned change to app.js is not run')
 
+    # 1b. A page the server adds under the app's address is never shown: the verified app is.
+    with open(os.path.join(WEB, 'evil.html'), 'w') as f: f.write('<!doctype html><script>window.__evil=1</script>evil')
+    p.goto(U.replace('index.html', 'evil.html')); p.wait_for_function("document.body.dataset.ready === '1'", timeout=10000)
+    check(p.evaluate("window.__evil") is None, 'an unsigned page under the app\'s address is replaced by the verified app')
+    p.goto(U); p.wait_for_function("document.body.dataset.ready === '1'")
+
     # 2. A properly signed newer release is staged, then used from the next start.
     append('app.js', '\nwindow.__v061 = 1;\n'); sign('0.6.1')
     force(); p.wait_for_function("/0\\.6\\.1 is ready/.test(window.__lullwireBuild())", timeout=15000)
