@@ -37,21 +37,36 @@ import (
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
-var version = "0.5.0"
+var version = "0.6.0"
 
 func main() {
-	home, _ := os.UserHomeDir()
-	addr := flag.String("addr", envOr("LULLWIRE_ADDR", "127.0.0.1:8080"), "listen address (keep it on 127.0.0.1 behind a proxy, tunnel or onion service)")
-	data := flag.String("data", envOr("LULLWIRE_DATA", filepath.Join(home, ".lullwire-relay-data")), "data folder for pending mail and recovery slots")
-	webDir := flag.String("web", os.Getenv("LULLWIRE_WEB"), "serve the app from this folder instead of the built-in copy")
-	trusted := flag.String("trusted-proxies", os.Getenv("LULLWIRE_TRUSTED_PROXIES"), "comma-separated proxy IPs allowed to report client addresses (local ones are trusted automatically)")
-	onion := flag.Bool("onion", os.Getenv("LULLWIRE_ONION") == "1", "Tor onion-service mode: limits apply per mailbox because Tor hides client addresses")
-	fwd := flag.String("forwarded-header", envOr("LULLWIRE_FORWARDED_HEADER", "X-Forwarded-For"), "header your proxy uses to report the client address (CF-Connecting-IP for Cloudflare Tunnel)")
-	prefix := flag.String("path", os.Getenv("LULLWIRE_PATH"), "private path for the app and relay, e.g. /k7q4mxp2/ (everything else shows the front page); see -new-path")
-	cover := flag.String("cover", os.Getenv("LULLWIRE_COVER"), "HTML file shown at every other address (default: a plain placeholder page)")
-	joinCode := flag.String("join-code", os.Getenv("LULLWIRE_JOIN_CODE"), "invite-only mode: people need this code (it travels inside your invites) to use the relay")
+	if len(os.Args) > 1 && os.Args[1] == "init" {
+		if err := runInit(os.Stdin, os.Stdout, os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	cfg, cfgPath, err := loadConfig(os.Args[1:])
+	if err != nil {
+		log.Fatal(err)
+	}
+	set := func(name, def string) string { return setting(cfg, name, def) }
+	_ = flag.String("config", cfgPath, "settings file written by \"lullwire-relay init\" (flags and environment variables override it)")
+	addr := flag.String("addr", set("addr", "127.0.0.1:8080"), "listen address (keep it on 127.0.0.1 behind a proxy, tunnel or onion service)")
+	data := flag.String("data", set("data", defaultDataDir()), "data folder for pending mail and recovery slots")
+	webDir := flag.String("web", set("web", ""), "serve the app from this folder instead of the built-in copy")
+	trusted := flag.String("trusted-proxies", set("trusted-proxies", ""), "comma-separated proxy IPs allowed to report client addresses (local ones are trusted automatically)")
+	onion := flag.Bool("onion", isTrue(set("onion", "")), "Tor onion-service mode: limits apply per mailbox because Tor hides client addresses")
+	fwd := flag.String("forwarded-header", set("forwarded-header", "X-Forwarded-For"), "header your proxy uses to report the client address (CF-Connecting-IP for Cloudflare Tunnel)")
+	prefix := flag.String("path", set("path", ""), "private path for the app and relay, e.g. /k7q4mxp2/ (everything else shows the front page); see -new-path")
+	cover := flag.String("cover", set("cover", ""), "HTML file shown at every other address (default: a plain placeholder page)")
+	joinCode := flag.String("join-code", set("join-code", ""), "invite-only mode: people need this code (it travels inside your invites) to use the relay")
 	newPath := flag.Bool("new-path", false, "print a random private path and join code, then exit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Lullwire Relay %s\n\n  lullwire-relay init     answer a few questions and write a settings file\n  lullwire-relay [flags]  run the relay\n\nFlags:\n", version)
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("lullwire-relay", version)
@@ -125,6 +140,9 @@ func main() {
 	if relay.inviteOnly() {
 		mode += ", invite-only"
 	}
+	if cfgPath != "" {
+		mode += ", settings: " + cfgPath
+	}
 	log.Printf("lullwire-relay %s on http://%s%s (data: %s%s)", version, ln.Addr(), base, *data, mode)
 	stopped := make(chan struct{})
 	go func() {
@@ -139,13 +157,6 @@ func main() {
 		log.Fatal(err)
 	}
 	<-stopped
-}
-
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
 }
 
 // siteFS returns the app files: the built-in copy, or a folder on disk. A data

@@ -440,7 +440,7 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	q := req.URL.Query()
 	switch a := q.Get("a"); a {
 	case "info": // what the app needs to know before signing up
-		writeJSON(w, http.StatusOK, map[string]any{"v": 2, "invite": r.inviteOnly(), "calls": true})
+		writeJSON(w, http.StatusOK, map[string]any{"v": 2, "invite": r.inviteOnly(), "calls": true, "mail": true})
 	case "put":
 		r.put(w, req, q.Get("box"))
 	case "rput", "rget", "rdel":
@@ -526,24 +526,8 @@ func (r *Relay) put(w http.ResponseWriter, req *http.Request, box string) {
 		fail(w, 400, "bad box")
 		return
 	}
-	if !r.isMember(box) { // invite-only: no mailbox by that name here
-		fail(w, 404, "unknown box")
-		return
-	}
-	key, distinct := r.clientKey(req)
-	var allowed bool
-	if !distinct && r.onion {
-		allowed = r.allow("put-all", "onion", time.Minute, onionPutsTotalMin) &&
-			r.allow("put-box", box, time.Minute, onionPutsPerBoxMin)
-	} else {
-		allowed = r.allow("put", key, time.Minute, putsPerMin)
-	}
-	if !allowed {
-		fail(w, 429, "slow down")
-		return
-	}
-	if !r.diskOK() {
-		fail(w, 507, "relay storage full")
+	if code, msg := r.admitPut(req, box); code != 0 {
+		fail(w, code, msg)
 		return
 	}
 	release, ok := r.acquire(w)
@@ -556,30 +540,60 @@ func (r *Relay) put(w http.ResponseWriter, req *http.Request, box string) {
 		fail(w, 413, "bad size")
 		return
 	}
+	if code, msg := r.store(box, body); code != 0 {
+		fail(w, code, msg)
+		return
+	}
+	okJSON(w)
+}
+
+// admitPut applies the checks every delivery passes, over HTTP or the live
+// connection: the mailbox must exist here, the sender is rate limited, and the
+// disk must have room. It returns 0 when the delivery may go ahead.
+func (r *Relay) admitPut(req *http.Request, box string) (int, string) {
+	if !r.isMember(box) { // invite-only: no mailbox by that name here
+		return 404, "unknown box"
+	}
+	key, distinct := r.clientKey(req)
+	var allowed bool
+	if !distinct && r.onion {
+		allowed = r.allow("put-all", "onion", time.Minute, onionPutsTotalMin) &&
+			r.allow("put-box", box, time.Minute, onionPutsPerBoxMin)
+	} else {
+		allowed = r.allow("put", key, time.Minute, putsPerMin)
+	}
+	if !allowed {
+		return 429, "slow down"
+	}
+	if !r.diskOK() {
+		return 507, "relay storage full"
+	}
+	return 0, ""
+}
+
+// store writes one envelope into a mailbox (within its quota) and wakes anyone waiting.
+func (r *Relay) store(box string, body []byte) (int, string) {
 	unlock := r.lockBox(box)
 	ids, bytes := r.pending(box)
 	if len(ids) >= maxPerBox || bytes+int64(len(body)) > maxBoxBytes {
 		unlock()
-		fail(w, 429, "box full")
-		return
+		return 429, "box full"
 	}
 	if err := os.MkdirAll(r.boxDir(box), 0o700); err != nil {
 		unlock()
-		fail(w, 500, "storage error")
-		return
+		return 500, "storage error"
 	}
 	id := fmt.Sprintf("%010d", r.now().Unix()) + randHex(6)
-	err = atomicWrite(filepath.Join(r.boxDir(box), id+".m"), body)
+	err := atomicWrite(filepath.Join(r.boxDir(box), id+".m"), body)
 	unlock()
 	if err != nil {
-		fail(w, 500, "storage error")
-		return
+		return 500, "storage error"
 	}
 	r.mu.Lock()
 	r.known[box] = r.now()
 	r.mu.Unlock()
 	r.wake(box)
-	okJSON(w)
+	return 0, ""
 }
 
 func (r *Relay) get(w http.ResponseWriter, req *http.Request, box, waitArg string) {
@@ -708,6 +722,12 @@ func leadingInt(s string) int {
 
 func (r *Relay) ack(w http.ResponseWriter, box string, in map[string]any) {
 	ids, _ := in["ids"].([]any)
+	r.remove(box, ids)
+	okJSON(w)
+}
+
+// remove deletes delivered envelopes (at most maxAck per call).
+func (r *Relay) remove(box string, ids []any) {
 	if len(ids) > maxAck {
 		ids = ids[:maxAck]
 	}
@@ -716,7 +736,6 @@ func (r *Relay) ack(w http.ResponseWriter, box string, in map[string]any) {
 			_ = os.Remove(filepath.Join(r.boxDir(box), id+".m"))
 		}
 	}
-	okJSON(w)
 }
 
 type slotRecord struct {

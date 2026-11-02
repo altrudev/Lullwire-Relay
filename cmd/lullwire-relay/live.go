@@ -13,12 +13,14 @@ package main
 //
 //	{"op":"open","room":<64 hex>,"s":<mailbox secret>}  caller creates the room
 //	{"op":"join","room":<64 hex>}                        callee joins it
+//	{"op":"mail","s":<mailbox secret>,"cover":bool}       live mail instead (see mail.go)
 //
 // The relay answers {"op":"ready","peer":bool} and later {"op":"peer","here":bool}
 // as the other side arrives or leaves. After that, binary messages are forwarded.
 
 import (
 	"bufio"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
@@ -68,6 +70,7 @@ type wsConn struct {
 	last   time.Time
 	queued atomic.Int64 // bytes waiting in out
 	ping   time.Duration
+	maxMsg int // largest message accepted from the client
 }
 
 type wsMsg struct {
@@ -82,10 +85,12 @@ type liveHub struct {
 	in    map[string]int // rooms joined, per client
 	idle  time.Duration  // wsIdle, shorter in tests
 	ping  time.Duration  // wsPing, shorter in tests
+
+	coverMin, coverSpread time.Duration // cover traffic timing, shorter in tests
 }
 
 func newLiveHub() *liveHub {
-	return &liveHub{rooms: map[string]*room{}, owned: map[string]int{}, in: map[string]int{}, idle: wsIdle, ping: wsPing}
+	return &liveHub{rooms: map[string]*room{}, owned: map[string]int{}, in: map[string]int{}, idle: wsIdle, ping: wsPing, coverMin: coverMin, coverSpread: coverSpread}
 }
 
 // ---- WebSocket framing (RFC 6455, server side) --------------------------------
@@ -128,7 +133,7 @@ func upgrade(w http.ResponseWriter, req *http.Request, ping time.Duration) (*wsC
 		return nil, err
 	}
 	c := &wsConn{conn: conn, br: rw.Reader, out: make(chan wsMsg, wsOutQueue), done: make(chan struct{}),
-		tokens: wsBurst, last: time.Now(), ping: ping}
+		tokens: wsBurst, last: time.Now(), ping: ping, maxMsg: wsMaxMessage}
 	go c.writer()
 	return c, nil
 }
@@ -164,7 +169,7 @@ func (c *wsConn) readMessage(timeout time.Duration) (op byte, data []byte, err e
 			}
 			n = binary.BigEndian.Uint64(e[:])
 		}
-		if n > wsMaxMessage || uint64(len(buf))+n > wsMaxMessage {
+		if n > uint64(c.maxMsg) || uint64(len(buf))+n > uint64(c.maxMsg) {
 			return 0, nil, errors.New("message too large")
 		}
 		var mask [4]byte
@@ -231,13 +236,36 @@ func (c *wsConn) send(op byte, data []byte) bool {
 	}
 }
 
+// sendWait queues a frame, waiting up to timeout for room in the queue. Mail uses it:
+// unlike media, an envelope is never dropped (it stays on the relay if the wait fails).
+func (c *wsConn) sendWait(op byte, data []byte, timeout time.Duration) bool {
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	c.queued.Add(int64(len(data)))
+	select {
+	case c.out <- wsMsg{op, data}:
+		return true
+	case <-c.done:
+	case <-t.C:
+	}
+	c.queued.Add(-int64(len(data)))
+	return false
+}
+
 func (c *wsConn) sendJSON(v any) {
 	b, _ := json.Marshal(v)
 	c.send(0x1, b)
 }
 
+// pingAfter varies the ping interval by ±25%, so the connection has no fixed rhythm.
+func pingAfter(d time.Duration) time.Duration {
+	var b [2]byte
+	_, _ = rand.Read(b[:])
+	return d*3/4 + time.Duration(binary.BigEndian.Uint16(b[:]))*d/2/65536
+}
+
 func (c *wsConn) writer() {
-	ping := time.NewTicker(c.ping)
+	ping := time.NewTimer(pingAfter(c.ping))
 	defer ping.Stop()
 	for {
 		select {
@@ -253,6 +281,7 @@ func (c *wsConn) writer() {
 				c.close()
 				return
 			}
+			ping.Reset(pingAfter(c.ping))
 		case <-c.done:
 			return
 		}
@@ -315,9 +344,10 @@ func (c *wsConn) allowBytes(n int) bool {
 // ---- rooms ----------------------------------------------------------------------
 
 type liveHello struct {
-	Op   string `json:"op"`
-	Room string `json:"room"`
-	S    string `json:"s"`
+	Op    string `json:"op"`
+	Room  string `json:"room"`
+	S     string `json:"s"`
+	Cover bool   `json:"cover"`
 }
 
 func (r *Relay) serveLive(w http.ResponseWriter, req *http.Request) {
@@ -331,7 +361,11 @@ func (r *Relay) serveLive(w http.ResponseWriter, req *http.Request) {
 	defer c.shutdown()
 	op, msg, err := c.readMessage(10 * time.Second)
 	var hello liveHello
-	if err != nil || op != 0x1 || json.Unmarshal(msg, &hello) != nil || !isHex(hello.Room, 64) {
+	if err == nil && op == 0x1 && json.Unmarshal(msg, &hello) == nil && hello.Op == "mail" {
+		r.serveMail(c, req, hello)
+		return
+	}
+	if err != nil || op != 0x1 || !isHex(hello.Room, 64) {
 		c.sendJSON(map[string]string{"op": "error", "msg": "bad hello"})
 		return
 	}
