@@ -1,4 +1,4 @@
-# Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+# Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Renders the brand images in this folder from HTML (needs Playwright + Chromium and
 the Inter font). Run: python3 assets/brand/render.py"""
@@ -36,7 +36,7 @@ def ic(name, size=24, color='#0e7a68', w=2):
 LOCKUP = f"""<style>{CSS}body{{width:1200px;height:320px;display:flex;align-items:center;gap:44px;padding:0 40px;background:transparent}}
 .mark{{width:240px;height:240px}} .t{{font-size:128px;font-weight:800;letter-spacing:-3.5px;line-height:1}} .t span{{color:var(--acc)}}
 .s{{font-size:30px;color:var(--muted);margin-top:12px;letter-spacing:-.2px}}</style>
-{MARK}<div><div class="t disp">Hush <span>Relay</span></div><div class="s">Private messaging on a relay you own</div></div>"""
+{MARK}<div><div class="t disp">Lullwire <span>Relay</span></div><div class="s">Private messaging on a relay you own</div></div>"""
 
 SOCIAL = f"""<style>{CSS}body{{width:1280px;height:640px;background:var(--acc);color:#fff;position:relative;overflow:hidden;padding:70px 80px}}
 .c1{{position:absolute;right:-160px;top:-200px;width:640px;height:640px;border-radius:50%;background:rgba(255,255,255,.06)}}
@@ -54,7 +54,7 @@ p{{font-size:26px;line-height:1.4;color:#d4ede7;margin-top:18px;max-width:820px}
 .in{{background:#eef1f4}} .out{{background:var(--acc);color:#fff;margin-left:auto}}
 .call{{margin-top:16px;border-radius:16px;background:#0f1d24;height:120px;display:grid;place-items:center;color:#9fd8c9;font-size:13px;font-weight:600}}
 </style><div class="c1"></div><div class="c2"></div>
-<div class="brand">{INV}Hush Relay</div>
+<div class="brand">{INV}Lullwire Relay</div>
 <h1 class="disp">Your messenger.<br>Your server.<br>Your rules.</h1>
 <p>End-to-end encrypted chat, voice and video,<br>on a relay you run. Only people you invite get in.</p>
 <div class="pills"><span class="pill">{ic('lock',22,'#fff')}Encrypted</span><span class="pill">{ic('video',22,'#fff')}Calls</span><span class="pill">{ic('android',22,'#fff')}Android + web</span><span class="pill">{ic('shield',22,'#fff')}Open source</span></div>
@@ -70,7 +70,7 @@ p{{font-size:32px;color:#d4ede7;margin-top:18px;line-height:1.35}}
 .row{{display:flex;gap:14px;margin-top:28px}}
 .pill{{display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.14);border-radius:999px;padding:10px 18px;font-size:22px;font-weight:600}}
 </style><div class="c1"></div>{INV}
-<div><h1 class="disp">Hush Relay</h1><p>Private chat, voice and video on a relay you own.<br>No phone number. No account. No app store.</p>
+<div><h1 class="disp">Lullwire Relay</h1><p>Private chat, voice and video on a relay you own.<br>No phone number. No account. No app store.</p>
 <div class="row"><span class="pill">{ic('lock',22,'#fff')}End-to-end encrypted</span><span class="pill">{ic('eye',22,'#fff')}Invite-only relay</span><span class="pill">{ic('android',22,'#fff')}Android · Web</span></div></div>"""
 
 def step(n, icon, title, text):
@@ -103,7 +103,7 @@ footer{{flex:none;margin-top:18px;background:#fff;border-top:1px solid var(--lin
 .repo{{font-size:22px;font-weight:800;color:var(--acc)}} .sm{{font-size:13.5px;color:var(--muted);margin-top:2px}}
 .warn{{margin-left:auto;background:var(--warm2);color:var(--warm);font-size:13px;font-weight:600;line-height:1.35;padding:9px 13px;border-radius:12px;max-width:360px}}
 </style>
-<header>{INV}<div><h1 class="disp">Install &amp; use Hush Relay</h1><p>Pick how you'll use it, then follow five steps. One person per group runs the relay.</p></div></header>
+<header>{INV}<div><h1 class="disp">Install &amp; use Lullwire Relay</h1><p>Pick how you'll use it, then follow five steps. One person per group runs the relay.</p></div></header>
 <main>
  <section><div class="lab">Choose how to use it</div><div class="ways">
   <div class="way"><div class="h"><span class="wi">{ic('android')}</span>Android app<span class="badge">APK</span></div><p>Download from GitHub Releases, check the fingerprint, install. No store needed.</p></div>
@@ -116,20 +116,20 @@ footer{{flex:none;margin-top:18px;background:#fff;border-top:1px solid var(--lin
    {step(2,'user','Pick a name','No phone number, no email. Your key is made on your device.')}
    {step(3,'shield','Check the safety code','Compare it once, in person or on a call, then tap <strong>They match</strong>.')}
    {step(4,'video','Chat and call','Messages, voice and video calls, encrypted end to end.')}
-   {step(5,'words','Turn on recovery words','Write down 6 words. They bring your profile back on any device.')}
-   <div class="tip"><strong>Tip:</strong> on Android, share an invite link to the Hush Relay app, or paste it on the welcome screen. Got a new phone? Choose <strong>From my other device</strong> and scan.</div>
+   {step(5,'words','Turn on recovery words','Write down 8 words. They bring your profile back on any device.')}
+   <div class="tip"><strong>Tip:</strong> on Android, share an invite link to the Lullwire Relay app, or paste it on the welcome screen. Got a new phone? Choose <strong>From my other device</strong> and scan.</div>
   </div>
   <div class="col"><h2>Host it</h2><div class="who">One person per group</div>
    {step(1,'server','Get the relay','One small program from Releases: Linux, Raspberry Pi, Windows, macOS, or a spare phone.')}
-   {step(2,'eye','Make it private','<code>hush-relay -new-path</code> gives you a hidden path and a join code.')}
-   {step(3,'lock','Give it HTTPS','Caddy on a VPS, or a Cloudflare Tunnel from a phone. Tor is optional.')}
+   {step(2,'eye','Run the setup','<code>lullwire-relay init</code> asks a few questions and makes it private: a hidden path and a join code.')}
+   {step(3,'lock','Give it HTTPS','It prints the Caddy, Cloudflare Tunnel or Tor setup for you. Tor is optional.')}
    {step(4,'send','Invite people','Open your private address, create a profile, tap <strong>Invite someone</strong>.')}
    {step(5,'shield','Keep it healthy','Keep the device updated and back up its data folder.')}
-   <div class="term"><i>$</i> ./hush-relay -new-path<br><i>  -path /k7q4mxp2ab/ -join-code 3f9c1e7a5b2d8c40</i><br><i>$</i> ./hush-relay -path /k7q4mxp2ab/ \\<br>&nbsp;&nbsp;-join-code 3f9c1e7a5b2d8c40</div>
+   <div class="term"><i>$</i> ./lullwire-relay init<br><i>  How will people reach this relay? 1</i><br><i>  Make it private (recommended)? [Y/n]</i><br><i>$</i> ./lullwire-relay</div>
   </div>
  </div>
 </main>
-<footer><div><div class="repo">github.com/altrudev/Hush-Relay</div><div class="sm">Guides: docs/SELF-HOSTING.md · AGPL-3.0 · © 2026 Valentyn Rukhaylo (ALTRU.dev)</div></div>
+<footer><div><div class="repo">github.com/altrudev/Lullwire-Relay</div><div class="sm">Guides: docs/SELF-HOSTING.md · AGPL-3.0 · © 2026 Valentyn Rukhaylo (ALTRU.dev)</div></div>
 <div class="warn">Experimental, not yet audited by outside cryptographers. If your safety depends on it, use Signal.</div></footer>"""
 
 JOBS = [('logo-horizontal.png', LOCKUP, 1200, 320, True), ('social-preview.png', SOCIAL, 1280, 640, False),
