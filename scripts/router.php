@@ -17,7 +17,7 @@ function deny() { http_response_code(404); header('Content-Type: text/plain'); e
 if (preg_match('#(^|/)(data|\.)#', $path)) return deny();          // data dir and dotfiles
 
 if (preg_match('#/relay\.php$#', $path)) {
-    putenv('HUSH_ROUTER=1'); // this router keeps the data folder private
+    putenv('LULLWIRE_ROUTER=1'); // this router keeps the data folder private
     require $web . '/relay.php';
     return true;
 }

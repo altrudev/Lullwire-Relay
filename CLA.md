@@ -1,17 +1,17 @@
-# Hush Relay Contributor License Agreement
+# Lullwire Relay Contributor License Agreement
 
 Version 1.0 · 2026-11-01
 
-Thank you for contributing to Hush Relay. This agreement explains what you give the project when you contribute, and what you keep. It applies to every contribution you submit to the Hush Relay repository at https://github.com/altrudev/Hush-Relay, or to any other repository or channel the Maintainer designates for the project.
+Thank you for contributing to Lullwire Relay. This agreement explains what you give the project when you contribute, and what you keep. It applies to every contribution you submit to the Lullwire Relay repository at https://github.com/altrudev/Lullwire-Relay, or to any other repository or channel the Maintainer designates for the project.
 
-**In short:** you keep the copyright in your work. You give the Maintainer a broad licence to use it, including the right to offer Hush Relay under additional licence terms (for example a commercial licence), so the project can sustain itself. Your contribution will always remain available to everyone under an open-source licence.
+**In short:** you keep the copyright in your work. You give the Maintainer a broad licence to use it, including the right to offer Lullwire Relay under additional licence terms (for example a commercial licence), so the project can sustain itself. Your contribution will always remain available to everyone under an open-source licence.
 
 ## 1. Definitions
 
-- **"Maintainer"** means Valentyn Rukhaylo (ALTRU.dev), the creator and copyright holder of Hush Relay, and any person or entity to whom he assigns the project and this agreement.
+- **"Maintainer"** means Valentyn Rukhaylo (ALTRU.dev), the creator and copyright holder of Lullwire Relay, and any person or entity to whom he assigns the project and this agreement.
 - **"You"** means the individual, or the legal entity on whose behalf an individual signs, who submits a Contribution. If you contribute on behalf of an employer or other organization, "You" includes that organization and you confirm you are authorized to bind it.
 - **"Contribution"** means any original work of authorship, including source code, documentation, designs, translations, tests and other material, and any changes to existing material, that You intentionally submit for inclusion in the project, for example by pull request, patch, issue attachment or email. Material You clearly mark as "Not a Contribution" when submitting it is excluded.
-- **"Project"** means Hush Relay and any software, documentation or service built from it by the Maintainer.
+- **"Project"** means Lullwire Relay and any software, documentation or service built from it by the Maintainer.
 
 ## 2. Copyright licence
 
@@ -54,7 +54,7 @@ This agreement is governed by the laws of the Province of British Columbia and t
 
 The first time you open a pull request, add this sentence to its description (the pull request template includes it):
 
-> I have read the Hush Relay Contributor License Agreement (CLA.md, version 1.0) and I agree to its terms for this and all my future contributions to Hush Relay.
+> I have read the Lullwire Relay Contributor License Agreement (CLA.md, version 1.0) and I agree to its terms for this and all my future contributions to Lullwire Relay.
 
 Your agreement is recorded with your GitHub account. Contributions can't be merged until it is there.
 

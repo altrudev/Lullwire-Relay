@@ -1,6 +1,6 @@
 {
-  "name": "Hush Relay",
-  "short_name": "Hush",
+  "name": "Lullwire Relay",
+  "short_name": "Lullwire",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

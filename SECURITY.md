@@ -2,7 +2,7 @@
 
 ## Status
 
-Hush Relay is **experimental and has not been audited by an independent security firm.** Each release has had internal adversarial review with working exploit scripts, and every confirmed finding was fixed with a regression test before release (see the audit log below). That is not a substitute for review by outside cryptographers.
+Lullwire Relay is **experimental and has not been audited by an independent security firm.** Each release has had internal adversarial review with working exploit scripts, and every confirmed finding was fixed with a regression test before release (see the audit log below). That is not a substitute for review by outside cryptographers.
 
 Use it for everyday privacy, learning and experiments. If a bug could put you or the people you talk to at risk (activists, journalists, sources, people facing a hostile government), use [Signal](https://signal.org) or [SimpleX](https://simplex.chat).
 
@@ -52,14 +52,14 @@ Please report privately through GitHub's **Report a vulnerability** button (the 
 ## Deployment checklist
 
 - Serve over HTTPS. Browsers refuse the crypto APIs otherwise.
-- Keep `HUSH_DATA` outside the web root unless you're on Apache with `.htaccess` enabled (`AllowOverride`); the relay can't detect an Apache that ignores `.htaccess`. Elsewhere, the relay refuses to start when the data folder is inside the web root.
-- Behind a proxy on another machine, list it in `HUSH_TRUSTED_PROXIES` so limits apply per real client. Local proxies and tunnels are trusted automatically.
+- Keep `LULLWIRE_DATA` outside the web root unless you're on Apache with `.htaccess` enabled (`AllowOverride`); the relay can't detect an Apache that ignores `.htaccess`. Elsewhere, the relay refuses to start when the data folder is inside the web root.
+- Behind a proxy on another machine, list it in `LULLWIRE_TRUSTED_PROXIES` so limits apply per real client. Local proxies and tunnels are trusted automatically.
 - Keep anti-framing headers on: `web/.htaccess` (Apache) and `scripts/router.php` (`php -S`) send them. On Caddy or nginx, add `Content-Security-Policy: frame-ancestors 'none'`.
 - Turn off access logs you don't need.
 - Behind a Tor onion service, run the Go relay with `-onion`; otherwise every visitor shares one client identity for rate limits. Back up the onion service's key folder and keep it private.
-- Use the private setup: `-path` and `-join-code` (`hush-relay -new-path` prints a pair). Share the app only through invites.
+- Use the private setup: `-path` and `-join-code` (`lullwire-relay -new-path` prints a pair). Share the app only through invites.
 - If a proxy sits in front, make sure it passes WebSocket upgrades to `…/live` (Caddy and Cloudflare Tunnel do by default; nginx needs `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`).
-- Android release builds: keep the signing key (`~/.hush-relay/release.jks`) offline and backed up, and publish the APK's SHA-256 and certificate fingerprint with each release.
+- Android release builds: keep the signing key (`~/.lullwire-relay/release.jks`) offline and backed up, and publish the APK's SHA-256 and certificate fingerprint with each release.
 - Keep the host patched. For a phone relay, use a device that still gets security updates.
 
 ## Audit log
@@ -70,7 +70,7 @@ A separate reviewer was given only the code and a threat model. It wrote proof-o
 
 | # | Severity | Finding | Fix |
 |---|---|---|---|
-| 1 | High | Data folder could be served by URL on nginx, Caddy or `php -S` | `HUSH_DATA` / `relay.config.php`; refuses to run when exposed; hardened router |
+| 1 | High | Data folder could be served by URL on nginx, Caddy or `php -S` | `LULLWIRE_DATA` / `relay.config.php`; refuses to run when exposed; hardened router |
 | 2 | Medium-high | A malicious relay could replay an old session opening and break or re-route a conversation | Single-use session ids, authenticated timestamps, replay floor after restore, newest session wins |
 | 3 | Medium | An oversized relay URL or contact spam could silently stop recovery-backup updates | Strict relay URL validation; unknown senders become requests excluded from backups; sync errors shown |
 | 4 | Medium | Unauthenticated writes could fill the disk | Rate limits, per-mailbox quotas, free-disk floor, expiry of stale slots and temp files |

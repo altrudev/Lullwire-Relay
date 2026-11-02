@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+# Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Run the full test suite against a throwaway relay.
 #   ./tests/run.sh               # PHP relay: core tests (needs php + node 20+)
@@ -12,14 +12,14 @@ IMPL=php; E2E=0
 for arg in "$@"; do case "$arg" in --go) IMPL=go;; --e2e) E2E=1;; esac; done
 PORT="${PORT:-8099}"
 TMP="$(mktemp -d)"
-export HUSH_DATA="$TMP/data"
+export LULLWIRE_DATA="$TMP/data"
 if [ "$IMPL" = go ]; then
   echo "== go build, vet, unit tests"
   test -z "$(gofmt -l cmd web)" && echo "  ok   gofmt" || { echo "  FAIL gofmt: $(gofmt -l cmd web)"; exit 1; }
   go vet ./... && echo "  ok   go vet"
   go test ./... 2>&1 | sed 's/^/  /'
-  go build -o "$TMP/hush-relay" ./cmd/hush-relay && echo "  ok   build"
-  "$TMP/hush-relay" -addr "localhost:$PORT" -data "$HUSH_DATA" >"$TMP/server.log" 2>&1 &
+  go build -o "$TMP/lullwire-relay" ./cmd/lullwire-relay && echo "  ok   build"
+  "$TMP/lullwire-relay" -addr "localhost:$PORT" -data "$LULLWIRE_DATA" >"$TMP/server.log" 2>&1 &
 else
   export PHP_CLI_SERVER_WORKERS=16
   php -S "localhost:$PORT" -t web scripts/router.php >"$TMP/server.log" 2>&1 &
@@ -60,10 +60,10 @@ sleep 0.3; otherip=$(live 203.0.113.9)
 echo "$burst" | grep -q 429 && [ "$otherip" = "200 " ] && echo "  ok   live connections capped per client behind a proxy ($burst| other client: $otherip)" || { echo "  FAIL per-client live cap ($burst| other: $otherip)"; exit 1; }
 if [ "$IMPL" = go ]; then
   # A data folder inside a served folder must be refused at startup.
-  if "$TMP/hush-relay" -addr "localhost:$((PORT+1))" -web web -data web/data >"$TMP/refuse.log" 2>&1; then echo "  FAIL started with data inside web/"; exit 1; fi
+  if "$TMP/lullwire-relay" -addr "localhost:$((PORT+1))" -web web -data web/data >"$TMP/refuse.log" 2>&1; then echo "  FAIL started with data inside web/"; exit 1; fi
   grep -q "inside the served folder" "$TMP/refuse.log" && [ ! -d web/data ] && echo "  ok   relay refuses to run with an exposed data folder" || { echo "  FAIL: $(cat "$TMP/refuse.log")"; exit 1; }
   # Graceful shutdown: a waiting long-poll is answered with [] and the process exits cleanly.
-  "$TMP/hush-relay" -addr "localhost:$((PORT+2))" -data "$TMP/data2" >"$TMP/stop.log" 2>&1 &
+  "$TMP/lullwire-relay" -addr "localhost:$((PORT+2))" -data "$TMP/data2" >"$TMP/stop.log" 2>&1 &
   SPID=$!; sleep 0.5
   sec=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')
   sbox=$(printf '%s' "$sec" | sha256sum | cut -c1-32)
@@ -80,13 +80,13 @@ if [ "$IMPL" = go ]; then
 else
 # Requests that really come from outside cannot spoof X-Forwarded-For (only loopback proxies are trusted).
 grep -q "preg_match('/^(127" web/relay.php && echo "  ok   forwarded addresses trusted only from local proxies" || { echo "  FAIL proxy trust check missing"; exit 1; }
-# Without the router or HUSH_DATA, php -S must refuse rather than expose web/data.
-env -u HUSH_DATA php -S "localhost:$((PORT+1))" -t web >/dev/null 2>&1 &
+# Without the router or LULLWIRE_DATA, php -S must refuse rather than expose web/data.
+env -u LULLWIRE_DATA php -S "localhost:$((PORT+1))" -t web >/dev/null 2>&1 &
 PID2=$!
 sleep 0.5
 body=$(curl -s -X POST "http://localhost:$((PORT+1))/relay.php?a=get" -d '{}')
 kill $PID2 2>/dev/null
-echo "$body" | grep -q "HUSH_DATA" && [ ! -d web/data ] && echo "  ok   relay refuses to run with an exposed data folder" || { echo "  FAIL exposed data folder not refused: $body"; rm -rf web/data; exit 1; }
+echo "$body" | grep -q "LULLWIRE_DATA" && [ ! -d web/data ] && echo "  ok   relay refuses to run with an exposed data folder" || { echo "  FAIL exposed data folder not refused: $body"; rm -rf web/data; exit 1; }
 fi
 
 if [ "$E2E" = 1 ]; then
@@ -97,13 +97,13 @@ if [ "$E2E" = 1 ]; then
   if [ "$IMPL" = go ]; then
     kill $PID 2>/dev/null; wait $PID 2>/dev/null || true
     JOIN="e2e-join-code"
-    "$TMP/hush-relay" -addr "localhost:$PORT" -data "$TMP/e2e-data" -path /e2e-private/ -join-code "$JOIN" >>"$TMP/server.log" 2>&1 &
+    "$TMP/lullwire-relay" -addr "localhost:$PORT" -data "$TMP/e2e-data" -path /e2e-private/ -join-code "$JOIN" >>"$TMP/server.log" 2>&1 &
     PID=$!
     BASE="http://localhost:$PORT/e2e-private/index.html"
     for _ in $(seq 50); do curl -s -o /dev/null "$BASE" && break; sleep 0.1; done
     [ "$(curl -s "http://localhost:$PORT/")" != "$(curl -s "$BASE")" ] && echo "  ok   front page differs from the private app" || { echo "  FAIL front page shows the app"; exit 1; }
   else
-    rm -rf "$HUSH_DATA/limits"
+    rm -rf "$LULLWIRE_DATA/limits"
   fi
   BASE="$BASE" JOIN="$JOIN" python3 tests/e2e.py
 fi

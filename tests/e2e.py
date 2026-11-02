@@ -1,4 +1,4 @@
-# Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+# Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Multi-browser end-to-end test, run via tests/run.sh --e2e:
 joining from an invite link (invite-only relay), adding a contact by QR picture,
@@ -111,7 +111,7 @@ with sync_playwright() as pw:
         def picture(p):  # how much the remote video varies (a black screen is 0)
             return p.evaluate("""() => { const c = document.querySelector('#remoteCanvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
               let s = 0, s2 = 0, n = 0; for (let i = 0; i < d.length; i += 400) { const v = d[i] + d[i+1] + d[i+2]; s += v; s2 += v*v; n++; } return Math.sqrt(s2/n - (s/n)**2); }""")
-        stats = {k: p.evaluate('window.__hushCallStats && window.__hushCallStats()') for k, p in (('Bob', B), ('E', E))}
+        stats = {k: p.evaluate('window.__lullwireCallStats && window.__lullwireCallStats()') for k, p in (('Bob', B), ('E', E))}
         print('  live on both sides; video picture variance Bob=%.0f E=%.0f' % (picture(B), picture(E)))
         print('  frames:', stats)
         ok = all(s and s['recvAudio'] > 50 and s['recvVideo'] > 20 and s['drawn'] > 20 and s['bad'] == 0 for s in stats.values())

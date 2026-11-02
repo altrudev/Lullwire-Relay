@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+<!-- Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
      SPDX-License-Identifier: AGPL-3.0-or-later -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="dev.altru.hushrelay"
+    package="dev.altru.lullwire"
     android:versionCode="5"
     android:versionName="0.5.0">
 
@@ -41,12 +41,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
-            <!-- hushrelay://...#i=... links open straight in the app. -->
+            <!-- lullwire://...#i=... links open straight in the app. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="hushrelay" />
+                <data android:scheme="lullwire" />
             </intent-filter>
         </activity>
     </application>

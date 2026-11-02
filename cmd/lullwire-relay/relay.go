@@ -1,4 +1,4 @@
-// Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+// Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package main
@@ -137,7 +137,7 @@ func NewRelay(data string, trusted []string, onion bool) (*Relay, error) {
 // code can receive mail, fetch it, store recovery backups or open calls.
 func (r *Relay) SetJoinCode(code string) {
 	if code = strings.TrimSpace(code); code != "" {
-		r.joinHash = sha256hex("hush-join|" + code)
+		r.joinHash = sha256hex("lullwire-join|" + code)
 	}
 }
 
@@ -478,7 +478,7 @@ func (r *Relay) join(w http.ResponseWriter, req *http.Request, box string, in ma
 	}
 	key, distinct := r.clientKey(req)
 	code, _ := in["code"].(string)
-	got := sha256hex("hush-join|" + strings.TrimSpace(code))
+	got := sha256hex("lullwire-join|" + strings.TrimSpace(code))
 	if subtle.ConstantTimeCompare([]byte(got), []byte(r.joinHash)) != 1 {
 		// Wrong codes are limited. The limits never apply to the right code, so
 		// guessing can't lock out people who have it.

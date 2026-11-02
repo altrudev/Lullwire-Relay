@@ -1,5 +1,5 @@
 'use strict';
-// Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+// Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /* Encrypted calls over the relay's WebSocket.
@@ -35,7 +35,7 @@
   }
   function iv(seq) { const v = new Uint8Array(12); new DataView(v.buffer).setBigUint64(4, seq); return v; }
 
-  class HushCall {
+  class LullwireCall {
     static supported() {
       return typeof WebSocket !== 'undefined' && 'AudioEncoder' in self && 'AudioDecoder' in self &&
         'VideoEncoder' in self && 'VideoDecoder' in self && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
@@ -173,7 +173,7 @@
         new Promise((_, bad) => { timer = setTimeout(() => bad(new Error('Sound is not available on this device')), 8000); })])
         .finally(() => clearTimeout(timer));
       const src = ctx.createMediaStreamSource(this.media);
-      const cap = new AudioWorkletNode(ctx, 'hush-capture', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: 'explicit' });
+      const cap = new AudioWorkletNode(ctx, 'lullwire-capture', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: 'explicit' });
       src.connect(cap);
       this.aEnc = new AudioEncoder({
         output: chunk => {
@@ -194,7 +194,7 @@
         this.aEnc.encode(data); data.close();
       };
       // Playback: decoder -> jitter-buffer worklet -> speakers.
-      this.play = new AudioWorkletNode(ctx, 'hush-playback', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+      this.play = new AudioWorkletNode(ctx, 'lullwire-playback', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
       await this.routePlayback();
       this.aDec = new AudioDecoder({
         output: a => {
@@ -303,5 +303,5 @@
     }
   }
 
-  self.HushCall = HushCall;
+  self.LullwireCall = LullwireCall;
 })();

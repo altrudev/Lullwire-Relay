@@ -1,6 +1,6 @@
-// Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+// Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package dev.altru.hushrelay;
+package dev.altru.lullwire;
 
 import android.Manifest;
 import android.app.Activity;
@@ -39,7 +39,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Hush Relay for Android: the same web app, bundled inside the APK and served from a
+ * Lullwire Relay for Android: the same web app, bundled inside the APK and served from a
  * private https origin that only this app can load. Nothing is fetched to show the
  * app itself; the only network traffic is to the relay you choose.
  */
@@ -95,10 +95,10 @@ public class MainActivity extends Activity {
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         s.setSaveFormData(false);
-        s.setUserAgentString(s.getUserAgentString() + " HushRelayAndroid/0.5" + (BuildConfig.DEBUG ? " debug" : ""));
+        s.setUserAgentString(s.getUserAgentString() + " LullwireAndroid/0.5" + (BuildConfig.DEBUG ? " debug" : ""));
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
 
-        web.addJavascriptInterface(new Bridge(), "HushAndroid");
+        web.addJavascriptInterface(new Bridge(), "LullwireAndroid");
         web.setWebViewClient(new Client());
         web.setWebChromeClient(new Chrome());
 
@@ -110,10 +110,10 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         String code = linkFrom(intent);
-        if (code != null && loaded) web.evaluateJavascript("window.hushOpen && hushOpen(" + JSONObject.quote(code) + ")", null);
+        if (code != null && loaded) web.evaluateJavascript("window.lullwireOpen && lullwireOpen(" + JSONObject.quote(code) + ")", null);
     }
 
-    /** An invite or move link handed to the app (shared text or a hushrelay:// link). */
+    /** An invite or move link handed to the app (shared text or a lullwire:// link). */
     static String linkFrom(Intent intent) {
         if (intent == null) return null;
         String text = null;
@@ -185,7 +185,7 @@ public class MainActivity extends Activity {
             if ("https".equals(u.getScheme()) && HOST.equals(u.getHost())) return false;
             // Invite links pointing at a relay's web copy open here instead of the browser.
             String code = linkFrom(new Intent(Intent.ACTION_VIEW, u));
-            if (code != null) { view.evaluateJavascript("hushOpen(" + JSONObject.quote(code) + ")", null); return true; }
+            if (code != null) { view.evaluateJavascript("lullwireOpen(" + JSONObject.quote(code) + ")", null); return true; }
             if ("https".equals(u.getScheme())) {
                 try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) { }
             }
@@ -273,7 +273,7 @@ public class MainActivity extends Activity {
         public void copy(String text) {
             runOnUiThread(() -> {
                 ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(ClipData.newPlainText("Hush Relay", text));
+                cm.setPrimaryClip(ClipData.newPlainText("Lullwire Relay", text));
                 Toast.makeText(MainActivity.this, "Copied", Toast.LENGTH_SHORT).show();
             });
         }

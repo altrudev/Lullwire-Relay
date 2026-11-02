@@ -1,6 +1,6 @@
-# Hush Relay brand assets
+# Lullwire Relay brand assets
 
-Logo, icons and promotional images for Hush Relay.
+Logo, icons and promotional images for Lullwire Relay.
 
 Copyright © 2026 Valentyn Rukhaylo (ALTRU.dev). The images in this folder identify the original project.
 
@@ -31,4 +31,4 @@ Please don't:
 - suggest that ALTRU.dev or Valentyn Rukhaylo endorses or runs your relay or service;
 - alter the logo or combine it with other marks.
 
-Questions: open an issue at https://github.com/altrudev/Hush-Relay.
+Questions: open an issue at https://github.com/altrudev/Lullwire-Relay.

@@ -4,6 +4,7 @@ web/relay.config.php
 node_modules/
 __pycache__/
 *.hush
+*.lullwire
 .DS_Store
 android/build/
 android/out/

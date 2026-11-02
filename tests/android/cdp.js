@@ -1,4 +1,4 @@
-// Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+// Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Minimal page-level DevTools client for an Android WebView (which doesn't allow the
 // browser-level control Playwright needs): run JS, wait for conditions, tap.

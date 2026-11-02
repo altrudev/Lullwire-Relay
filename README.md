@@ -38,18 +38,18 @@ You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi o
 
 | | How | Notes |
 |---|---|---|
-| **Android app** | Download `hush-relay-<version>.apk` from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) and open it | No store. Check the SHA-256 from the release; official builds are signed by Valentyn Rukhaylo (ALTRU.dev), certificate `38:40:AF:64:…:00:CD:53:19` ([full fingerprint](docs/SELF-HOSTING.md#android-app)) |
+| **Android app** | Download `lullwire-relay-<version>.apk` from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) and open it | No store. Check the SHA-256 from the release; official builds are signed by Valentyn Rukhaylo (ALTRU.dev), certificate `38:40:AF:64:…:00:CD:53:19` ([full fingerprint](docs/SELF-HOSTING.md#android-app)) |
 | **Web app (PWA)** | Open an invite link, then **Install** or **Add to Home Screen** | Android, Windows, Linux, ChromeOS, macOS; on iPhone use Safari's **Add to Home Screen** |
 | **Any browser** | Just open the invite link | Calls need a recent Chrome, Edge, Firefox or Safari |
 
-**To host** (one person per group): download the relay for your device from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./hush-relay -new-path`, and put it behind HTTPS. The [self-hosting guide](docs/SELF-HOSTING.md) covers a VPS, a spare phone, shared hosting and Tor.
+**To host** (one person per group): download the relay for your device from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./lullwire-relay -new-path`, and put it behind HTTPS. The [self-hosting guide](docs/SELF-HOSTING.md) covers a VPS, a spare phone, shared hosting and Tor.
 
 ## Quick start (local, 1 minute)
 
 ```bash
-git clone https://github.com/altrudev/Lullwire-Relay.git hush-relay
-cd hush-relay
-go build -o hush-relay ./cmd/hush-relay && ./hush-relay     # Go 1.22+
+git clone https://github.com/altrudev/Lullwire-Relay.git lullwire-relay
+cd lullwire-relay
+go build -o lullwire-relay ./cmd/lullwire-relay && ./lullwire-relay     # Go 1.22+
 # or, with PHP 7.4+:  ./scripts/serve.sh
 ```
 
@@ -86,7 +86,7 @@ Links opened from outside the app (a web page, another app, a shared text) alway
 ## Repository layout
 
 ```
-cmd/hush-relay/ Go relay: one binary, app built in, standard library only
+cmd/lullwire-relay/ Go relay: one binary, app built in, standard library only
   live.go       WebSocket call rooms (RFC 6455, standard library)
 web/            the app (and the PHP relay)
   index.html    UI

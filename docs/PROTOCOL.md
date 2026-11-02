@@ -1,4 +1,4 @@
-# Hush Relay protocol (v3)
+# Lullwire Relay protocol (v3)
 
 All cryptography uses the browser's WebCrypto API: ECDH P-256, HKDF-SHA-256, HMAC-SHA-256, AES-256-GCM and PBKDF2-SHA-256. Encodings are base64url without padding unless noted.
 
@@ -50,7 +50,7 @@ Message bodies are JSON: `{t: "msg", id, txt, ts}`, `{t: "reset", id, ts}`, `{t:
 | `?a=info` | `{}` | `{v: 2, invite: bool, calls: bool}` (Go relay; the PHP relay answers 400, which the app reads as "open, no calls") |
 | `?a=join` | `{"s": secret, "code"}` | registers `box(s)` as a member of an invite-only relay; 403 for a wrong code |
 
-**Invite-only relays** (Go relay with `-join-code`) keep a list of member mailboxes. `put` to a non-member box answers 404 `unknown box`, so strangers can't use the relay as a free mailbox; `rput` needs the `s` of a member. `get` and `ack` for a non-member answer like an empty mailbox. The relay stores `SHA-256("hush-join|" + code)`, never the code. `join` is limited to 10 tries per client per hour and 60 per minute overall.
+**Invite-only relays** (Go relay with `-join-code`) keep a list of member mailboxes. `put` to a non-member box answers 404 `unknown box`, so strangers can't use the relay as a free mailbox; `rput` needs the `s` of a member. `get` and `ack` for a non-member answer like an empty mailbox. The relay stores `SHA-256("lullwire-join|" + code)`, never the code. `join` is limited to 10 tries per client per hour and 60 per minute overall.
 
 **Private path** (Go relay with `-path /<secret>/`): everything above, the app and `/live` move under that prefix, and `/` shows a plain placeholder page. It keeps scanners and casual visitors from recognising the server; it is not access control (the join code is).
 

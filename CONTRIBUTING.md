@@ -1,4 +1,4 @@
-# Contributing to Hush Relay
+# Contributing to Lullwire Relay
 
 Contributions to documentation, tests, interoperability and security hardening are welcome.
 
@@ -27,7 +27,7 @@ Third-party code you include must be compatible with the project license and mus
 New source files start with the project header:
 
 ```
-Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 SPDX-License-Identifier: AGPL-3.0-or-later
 ```
 

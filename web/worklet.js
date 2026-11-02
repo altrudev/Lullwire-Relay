@@ -1,10 +1,10 @@
-// Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+// Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Audio worklets for calls: capture the microphone in 20 ms blocks (960 samples
 // at 48 kHz) for the Opus encoder, and play decoded audio from a small jitter buffer.
 
-class HushCapture extends AudioWorkletProcessor {
+class LullwireCapture extends AudioWorkletProcessor {
   constructor() { super(); this.buf = new Float32Array(960); this.n = 0; }
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
@@ -18,7 +18,7 @@ class HushCapture extends AudioWorkletProcessor {
   }
 }
 
-class HushPlayback extends AudioWorkletProcessor {
+class LullwirePlayback extends AudioWorkletProcessor {
   constructor() {
     super();
     this.q = []; this.queued = 0; this.cur = null; this.pos = 0; this.playing = false;
@@ -46,5 +46,5 @@ class HushPlayback extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('hush-capture', HushCapture);
-registerProcessor('hush-playback', HushPlayback);
+registerProcessor('lullwire-capture', LullwireCapture);
+registerProcessor('lullwire-playback', LullwirePlayback);

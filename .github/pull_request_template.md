@@ -16,4 +16,4 @@
 
 <!-- Required once, on your first pull request. Keep this sentence if you agree. -->
 
-I have read the Hush Relay Contributor License Agreement (CLA.md, version 1.0) and I agree to its terms for this and all my future contributions to Hush Relay.
+I have read the Lullwire Relay Contributor License Agreement (CLA.md, version 1.0) and I agree to its terms for this and all my future contributions to Lullwire Relay.

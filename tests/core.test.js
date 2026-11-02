@@ -1,6 +1,6 @@
-// Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+// Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Hush Relay test suite: crypto core + relay HTTP API.
+// Lullwire Relay test suite: crypto core + relay HTTP API.
 // Run via tests/run.sh (starts a throwaway relay), or:
 //   RELAY=http://127.0.0.1:8099/relay.php node tests/core.test.js
 const path=require('path');
@@ -47,7 +47,8 @@ async function ratchet(){
  const r3=(await recv(D,dBook,await encryptFor(C,cD,{txt:'c2'}))).msg.txt, r4=(await recv(C,cBook,await encryptFor(D,dC,{txt:'d2'}))).msg.txt;
  ok([r1,r2,r3,r4].join()==='c1,d1,c2,d2','simultaneous start converges');
  // 9. padding hides length
- const s1=await encryptFor(A,aB,{txt:'x'}), s2=await encryptFor(A,aB,{txt:'x'.repeat(300)}); ok(s1.length===s2.length,'padded to same size ('+s1.length+')');
+ const sizes=[]; for(const t of ['x','x'.repeat(150),'y','z'.repeat(100)]) sizes.push((await encryptFor(A,aB,{txt:t})).length);
+ ok(sizes.every(n=>n>=1024+93&&n<1024+128+93),'padded to one size class ('+sizes.join(', ')+')');
  // 10. backup round trip + reset
  const bk=await H.exportBackup(A,[{pub:B.pub,box:B.box,relay:R,name:'Bob',verified:true}],'correct horse battery');
  ok(await rejects(H.importBackup(bk,'wrong passphrase!!')),'wrong passphrase rejected');
@@ -76,7 +77,7 @@ async function relayAndRecovery(){
  await post('ack',{s:B.secret,ids:items.map(i=>i.id)});
  const t1=Date.now(); const empty=await (await post('get',{s:B.secret},'&wait=2')).json(); ok(empty.length===0 && Date.now()-t1>=1900,'empty long-poll waits then returns []');
  // recovery words
- const w=H.genWords(); ok(w.split(' ').length===6,'6 words: '+w);
+ const w=H.genWords(); ok(w.split(' ').length===8,'8 words: '+w);
  ok(H.normWords(w.toUpperCase().replace(/ /g,', '))===w,'normalizes case/punctuation');
  ok(H.normWords(w.split(' ').map(x=>x.slice(0,4)).join(' '))===w,'accepts 4-letter prefixes');
  ok(await rejects((async()=>H.normWords('apple banana zzzz qqqq able about'))()),'rejects unknown word');
@@ -173,9 +174,100 @@ async function auditRegressions(){
   const eph=await H.genKP(); const sealed=await H.sealOuter({t:'link',data:big},eph.pub);
   ok((await post('put',sealed,'&box='+B.box)).ok,'largest account: transfer accepted ('+Math.round(sealed.length/1024)+' KB)');
 }
+async function protocolV4(){
+  const A=await H.newIdentity('Alice',R), B=await H.newIdentity('Bob',R), E=await H.newIdentity('Eve',R);
+  // Cards: signed by the identity key, bound to mailbox, relay, prekey and time.
+  const qB=await H.makeCard(B);
+  ok(await H.checkCard(B.pub,B.box,B.relay,qB),'own card verifies');
+  ok(!(await H.checkCard(B.pub,E.box,B.relay,qB)),'card with a swapped mailbox refused');
+  ok(!(await H.checkCard(B.pub,B.box,'https://evil.example/relay.php',qB)),'card with a swapped relay refused');
+  ok(!(await H.checkCard(B.pub,B.box,B.relay,{...qB,s:E.spks[0].pub})),'card with a swapped prekey refused');
+  ok(!(await H.checkCard(B.pub,E.box,E.relay,await H.makeCard(E))),"someone else's card refused");
+  ok(!(await H.checkCard(B.pub,B.box,B.relay,{...qB,t:Date.now()+3*864e5})),'card from the far future refused');
+  // Alice learns Bob's card (from his invite): sessions open against his prekey.
+  const aB=view(B.pub); ok(await H.takeCard(aB,B.box,B.relay,qB) && aB.v4,'card taken from an invite');
+  ok(!(await H.takeCard(aB,B.box,B.relay,qB)),'same card not taken twice');
+  const first=await encryptFor(A,aB,{t:'msg',txt:'v4 hello'});
+  const onlyId={...B,spks:[]};
+  ok(await rejects(H.openOuter(onlyId,first)),'outer layer sealed to the prekey: the identity key alone cannot open it');
+  const fi=await H.openOuter(B,first);
+  ok(fi.v===4 && fi.h.e && fi.h.sp===B.spks[0].pub && fi.q,'opening message is v4, names the prekey, carries a card');
+  const bBook={}; const r1=await recv(B,bBook,first); ok(r1.msg.txt==='v4 hello','v4 opening decrypts');
+  const bA=bBook[A.pub]; ok(await H.takeCard(bA,fi.b,fi.r,fi.q) && bA.v4,'card taken from a message');
+  const back=await recv(A,{[B.pub]:aB},await encryptFor(B,bA,{t:'msg',txt:'v4 reply'}));
+  ok(back.msg.txt==='v4 reply' && back.inner.v===4,'v4 reply decrypts');
+  const next=await H.openOuter(A,await encryptFor(B,bA,{t:'msg',txt:'later'}));
+  ok(next.h.e===undefined,'answered sessions stop repeating the opening keys');
+  ok(back.inner.qa===A.spks[0].t && aB.qAck===A.spks[0].t,'Bob confirms he holds Alice\'s card');
+  await recv(B,bBook,await encryptFor(A,aB,{t:'msg',txt:'ack mine'}));
+  const after=await H.openOuter(B,await encryptFor(A,aB,{t:'msg',txt:'no card'}));
+  ok(after.q===undefined && after.qa===qB.t && bA.qAck===qB.t,'a confirmed card is not resent; each side confirms the other\'s');
+  // Sender binding: every field of the inner envelope is authenticated by the ratchet.
+  for(const [f,val] of [['b',E.box],['r','https://evil.example/relay.php'],['n','Mallory'],['q',await H.makeCard(E)]]){
+    const m=await H.openOuter(B,await encryptFor(A,aB,{t:'msg',txt:'bind'}));
+    const snap=JSON.stringify(Object.keys(bA.sessions)); m[f]=val;
+    ok(await rejects(H.decryptFrom(B,bA,m)) && JSON.stringify(Object.keys(bA.sessions))===snap,'changed sender field "'+f+'" is refused');
+  }
+  // Forward secrecy for opening messages: once the prekey is gone, a stolen identity key
+  // (with every later prekey) can't read a recorded opening message.
+  const C=await H.newIdentity('Cat',R); const cB=view(B.pub); await H.takeCard(cB,B.box,B.relay,qB);
+  const recorded=await encryptFor(C,cB,{t:'msg',txt:'recorded'});
+  const later={...B,spks:[...B.spks]}; await H.rotatePrekeys(later,Date.now()+H.SPK_KEEP+864e5);
+  ok(!later.spks.some(k=>k.pub===qB.s) && later.spks.length===1,'prekeys rotate and old ones are forgotten');
+  ok(await rejects(recv(later,{},recorded)),'recorded opening message unreadable after its prekey is deleted');
+  // A prekey too old to rely on is not used: the session opens the v2 way, sealed to the identity.
+  const old=view(B.pub); old.card={...qB,b:B.box,r:B.relay,t:Date.now()-H.SPK_USE-864e5}; old.v4=true;
+  const o2=await H.openOuter(onlyId,await encryptFor(A,old,{t:'msg',txt:'old card'}));
+  ok(o2.h.e===undefined,'stale prekey not used');
+  // Rotation timing.
+  const D=await H.newIdentity('Dan',R); const k0=D.spks[0].pub;
+  ok(!(await H.rotatePrekeys(D,Date.now()+H.SPK_ROTATE-864e5)) && await H.rotatePrekeys(D,Date.now()+H.SPK_ROTATE+1000) && D.spks.length===2 && D.spks[1].pub===k0,'a new prekey every 14 days, the old one kept');
+  // An unknown prekey (deleted, or made up) can't open a session.
+  const fakeCard=view(B.pub); fakeCard.card={s:(await H.genKP()).pub,t:Date.now(),b:B.box,r:R}; fakeCard.v4=true;
+  ok(await rejects(recv(B,{},await encryptFor(A,fakeCard,{t:'msg',txt:'?'}))),'message sealed to an unknown prekey refused');
+  ok(await rejects(H.decryptFrom(B,view(A.pub),{v:4,s:'x',c:'AA',h:{dh:A.pub,pn:0,n:0,e:A.pub,sp:fakeCard.card.s}})),'opening that names an unknown prekey refused');
+  // Signed invites: a mailbox swapped in an intercepted invite no longer verifies.
+  const inv={p:B.pub,b:B.box,r:B.relay,q:qB};
+  ok(await H.checkCard(inv.p,inv.b,inv.r,inv.q) && !(await H.checkCard(inv.p,E.box,inv.r,inv.q)),'invite card detects a swapped mailbox');
+}
+async function recoveryAndVault(){
+  const A=await H.newIdentity('Alice',R);
+  const w=H.genWords(); ok(w.split(' ').length===8,'8 recovery words: '+w);
+  const k2=await H.recoveryKeys(w); ok(k2.v===2,'8 words use recovery v2');
+  const w6=w.split(' ').slice(0,6).join(' '); const k1=await H.recoveryKeys(w6);
+  ok(k1.v===1 && k1.l!==k2.l,'6 words still work (v1) and map to a different slot');
+  ok(await rejects((async()=>H.normWords(w.split(' ').slice(0,7).join(' ')))()),'7 words refused');
+  const d=await H.sealRecovery(k2,await H.backupData(A,[]));
+  ok((H.b64d(d).length-28)%16384===0,'recovery slot padded ('+H.b64d(d).length+' bytes)');
+  const back=await H.restoreData(await H.openRecovery(k2,d));
+  ok(back.me.pub===A.pub && back.me.spks.length===1 && back.me.sign,'recovered identity gets a fresh prekey and a signing key');
+  ok(await H.checkCard(back.me.pub,back.me.box,back.me.relay,await H.makeCard(back.me)),'recovered identity signs valid cards');
+  // Runtime identity keys are not extractable.
+  ok(await rejects(crypto.subtle.exportKey('jwk',A.priv)) && await rejects(crypto.subtle.exportKey('jwk',A.sign)),'identity keys are non-extractable at runtime');
+  // Padding: random tails stay inside their size class; big payloads are padded too.
+  const ps=[...Array(20)].map(()=>H.pad('x').length); ok(Math.min(...ps)>=1024 && Math.max(...ps)<1152 && new Set(ps).size>1,'padding tail varies within the class');
+  ok(H.pad('x'.repeat(40000)).length===49152,'large payloads padded to 16 KiB steps');
+  // Vault: records with ratchet state round-trip; tampering, moving or the wrong key fail.
+  const mk=H.rand(32), vk=await H.vaultKeys(mk), vk2=await H.vaultKeys(H.rand(32));
+  const B=await H.newIdentity('Bob',R); const aB=view(B.pub); await H.takeCard(aB,B.box,B.relay,await H.makeCard(B));
+  await encryptFor(A,aB,{t:'msg',txt:'a'});
+  const sealed=await H.sealRecord(vk,'contacts|x',aB), opened=await H.openRecord(vk,'contacts|x',sealed);
+  const st=opened.sessions[opened.active];
+  ok(st.RK instanceof Uint8Array && st.DHs.priv instanceof CryptoKey && opened.card.s===aB.card.s,'contact record round-trips with its ratchet state');
+  const bBook={}; await recv(B,bBook,await encryptFor(A,opened,{t:'msg',txt:'b'})); // B never saw 'a': skipped, still fine
+  ok(true,'restored ratchet state keeps sending');
+  ok(await rejects(H.openRecord(vk,'contacts|y',sealed)),'record moved to another key refused');
+  ok(await rejects(H.openRecord(vk2,'contacts|x',sealed)),'other vault key refused');
+  const t2=Uint8Array.from(sealed); t2[30]^=1; ok(await rejects(H.openRecord(vk,'contacts|x',t2)),'tampered record refused');
+  ok((await H.blindId(vk,'abc'))===(await H.blindId(vk,'abc')) && (await H.blindId(vk,'abc'))!==(await H.blindId(vk2,'abc')),'blinded ids are stable per vault');
+  const wp=await H.wrapWithPass(mk,'correct horse battery');
+  ok(H.hex(await H.unwrapWithPass(wp,'correct horse battery'))===H.hex(mk) && await rejects(H.unwrapWithPass(wp,'wrong horse battery')),'passphrase wraps the vault key');
+}
 (async()=>{
   console.log('Ratchet and envelope'); await ratchet();
   console.log('Relay, live mode, recovery, linking'); await relayAndRecovery();
   console.log('Audit regressions'); await auditRegressions();
+  console.log('Protocol v4: prekeys, cards, sender binding'); await protocolV4();
+  console.log('Recovery v2, padding, vault'); await recoveryAndVault();
   console.log(fails?fails+' of '+n+' FAILED':'all '+n+' passed'); process.exit(fails?1:0);
 })().catch(e=>{console.error(e);process.exit(1)});

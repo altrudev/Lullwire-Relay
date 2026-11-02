@@ -1,12 +1,12 @@
-// Hush Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
+// Lullwire Relay — Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Command hush-relay serves the Hush Relay app and its mailbox relay from a
+// Command lullwire-relay serves the Lullwire Relay app and its mailbox relay from a
 // single self-contained binary. It uses only the Go standard library.
 //
-//	hush-relay                         # http://127.0.0.1:8080, data in ~/.hush-relay-data
-//	hush-relay -addr 127.0.0.1:9000 -data /srv/hush
-//	hush-relay -onion                  # behind a Tor onion service
+//	lullwire-relay                         # http://127.0.0.1:8080, data in ~/.lullwire-relay-data
+//	lullwire-relay -addr 127.0.0.1:9000 -data /srv/lullwire
+//	lullwire-relay -onion                  # behind a Tor onion service
 //
 // Put an HTTPS proxy, a tunnel or a Tor onion service in front of it: browsers
 // only allow the app's cryptography on https://, .onion (Tor Browser) or localhost.
@@ -33,7 +33,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/altrudev/Hush-Relay/web"
+	"github.com/altrudev/Lullwire-Relay/web"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -41,20 +41,20 @@ var version = "0.5.0"
 
 func main() {
 	home, _ := os.UserHomeDir()
-	addr := flag.String("addr", envOr("HUSH_ADDR", "127.0.0.1:8080"), "listen address (keep it on 127.0.0.1 behind a proxy, tunnel or onion service)")
-	data := flag.String("data", envOr("HUSH_DATA", filepath.Join(home, ".hush-relay-data")), "data folder for pending mail and recovery slots")
-	webDir := flag.String("web", os.Getenv("HUSH_WEB"), "serve the app from this folder instead of the built-in copy")
-	trusted := flag.String("trusted-proxies", os.Getenv("HUSH_TRUSTED_PROXIES"), "comma-separated proxy IPs allowed to report client addresses (local ones are trusted automatically)")
-	onion := flag.Bool("onion", os.Getenv("HUSH_ONION") == "1", "Tor onion-service mode: limits apply per mailbox because Tor hides client addresses")
-	fwd := flag.String("forwarded-header", envOr("HUSH_FORWARDED_HEADER", "X-Forwarded-For"), "header your proxy uses to report the client address (CF-Connecting-IP for Cloudflare Tunnel)")
-	prefix := flag.String("path", os.Getenv("HUSH_PATH"), "private path for the app and relay, e.g. /k7q4mxp2/ (everything else shows the front page); see -new-path")
-	cover := flag.String("cover", os.Getenv("HUSH_COVER"), "HTML file shown at every other address (default: a plain placeholder page)")
-	joinCode := flag.String("join-code", os.Getenv("HUSH_JOIN_CODE"), "invite-only mode: people need this code (it travels inside your invites) to use the relay")
+	addr := flag.String("addr", envOr("LULLWIRE_ADDR", "127.0.0.1:8080"), "listen address (keep it on 127.0.0.1 behind a proxy, tunnel or onion service)")
+	data := flag.String("data", envOr("LULLWIRE_DATA", filepath.Join(home, ".lullwire-relay-data")), "data folder for pending mail and recovery slots")
+	webDir := flag.String("web", os.Getenv("LULLWIRE_WEB"), "serve the app from this folder instead of the built-in copy")
+	trusted := flag.String("trusted-proxies", os.Getenv("LULLWIRE_TRUSTED_PROXIES"), "comma-separated proxy IPs allowed to report client addresses (local ones are trusted automatically)")
+	onion := flag.Bool("onion", os.Getenv("LULLWIRE_ONION") == "1", "Tor onion-service mode: limits apply per mailbox because Tor hides client addresses")
+	fwd := flag.String("forwarded-header", envOr("LULLWIRE_FORWARDED_HEADER", "X-Forwarded-For"), "header your proxy uses to report the client address (CF-Connecting-IP for Cloudflare Tunnel)")
+	prefix := flag.String("path", os.Getenv("LULLWIRE_PATH"), "private path for the app and relay, e.g. /k7q4mxp2/ (everything else shows the front page); see -new-path")
+	cover := flag.String("cover", os.Getenv("LULLWIRE_COVER"), "HTML file shown at every other address (default: a plain placeholder page)")
+	joinCode := flag.String("join-code", os.Getenv("LULLWIRE_JOIN_CODE"), "invite-only mode: people need this code (it travels inside your invites) to use the relay")
 	newPath := flag.Bool("new-path", false, "print a random private path and join code, then exit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
-		fmt.Println("hush-relay", version)
+		fmt.Println("lullwire-relay", version)
 		return
 	}
 	if *newPath {
@@ -86,7 +86,7 @@ func main() {
 		log.Printf("note: behind Tor every visitor looks the same, so limits can't tell people apart; add -join-code to keep strangers from using this relay")
 	}
 	if *prefix != "" && *cover == "" {
-		log.Printf("note: the built-in front page is the same on every Hush relay; -cover with a page of your own makes this server harder to recognise")
+		log.Printf("note: the built-in front page is the same on every Lullwire relay; -cover with a page of your own makes this server harder to recognise")
 	}
 	srv := &http.Server{
 		Addr:              *addr,
@@ -125,7 +125,7 @@ func main() {
 	if relay.inviteOnly() {
 		mode += ", invite-only"
 	}
-	log.Printf("hush-relay %s on http://%s%s (data: %s%s)", version, ln.Addr(), base, *data, mode)
+	log.Printf("lullwire-relay %s on http://%s%s (data: %s%s)", version, ln.Addr(), base, *data, mode)
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)

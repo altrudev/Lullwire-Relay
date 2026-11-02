@@ -1,5 +1,5 @@
 <?php
-// Hush Relay — a dumb mailbox for opaque encrypted blobs.
+// Lullwire Relay — a dumb mailbox for opaque encrypted blobs.
 // It never sees plaintext, sender identity, names or contacts.
 //
 // Mailboxes: anyone holding a box id can drop a blob in; only the holder of the
@@ -8,8 +8,8 @@
 // write token chosen when it was first stored. Both are derived from the user's
 // recovery words in the browser; the relay only keeps sha256(token).
 //
-// Configuration (optional): environment variable HUSH_DATA, or a file
-// relay.config.php next to this one that defines HUSH_DATA. Keep it outside
+// Configuration (optional): environment variable LULLWIRE_DATA, or a file
+// relay.config.php next to this one that defines LULLWIRE_DATA. Keep it outside
 // the web root unless you are on Apache (which honours the .htaccess we write).
 //
 // Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
@@ -26,9 +26,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') exit;
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { http_response_code(405); exit; }
 
 if (is_file(__DIR__ . '/relay.config.php')) require __DIR__ . '/relay.config.php';
-if (!defined('HUSH_DATA')) define('HUSH_DATA', getenv('HUSH_DATA') ?: __DIR__ . '/data');
+// LEGACY: HUSH_* names from Hush Relay 0.5 are still read.
+if (!defined('LULLWIRE_DATA') && defined('HUSH_DATA')) define('LULLWIRE_DATA', HUSH_DATA);
+if (!defined('LULLWIRE_DATA')) define('LULLWIRE_DATA', getenv('LULLWIRE_DATA') ?: (getenv('HUSH_DATA') ?: __DIR__ . '/data'));
 
-define('DATA', rtrim(HUSH_DATA, '/'));
+define('DATA', rtrim(LULLWIRE_DATA, '/'));
 define('RECOVER', DATA . '/recover');
 define('LIMITS', DATA . '/limits');
 const MAX_BLOB     = 524288;        // bytes per blob (messages are padded to 32 KiB; account transfers can be larger)
@@ -69,14 +71,14 @@ function hexarg($in, $k, $len) {
 }
 // The real client address. Behind a local proxy or tunnel (Cloudflare Tunnel, Caddy, nginx)
 // every request comes from 127.0.0.1, so the forwarded address is used instead, and only then.
-// Extra proxies can be trusted with HUSH_TRUSTED_PROXIES="10.0.0.2,10.0.0.3".
+// Extra proxies can be trusted with LULLWIRE_TRUSTED_PROXIES="10.0.0.2,10.0.0.3".
 function client_ip() {
     $remote = $_SERVER['REMOTE_ADDR'] ?? '';
-    $trusted = array_filter(array_map('trim', explode(',', (string)(getenv('HUSH_TRUSTED_PROXIES') ?: (defined('HUSH_TRUSTED_PROXIES') ? HUSH_TRUSTED_PROXIES : '')))));
+    $trusted = array_filter(array_map('trim', explode(',', (string)(getenv('LULLWIRE_TRUSTED_PROXIES') ?: getenv('HUSH_TRUSTED_PROXIES') ?: (defined('LULLWIRE_TRUSTED_PROXIES') ? LULLWIRE_TRUSTED_PROXIES : '')))));
     if (!preg_match('/^(127\.|::1$|::ffff:127\.)/', $remote) && !in_array($remote, $trusted, true)) return $remote;
     // Which header the proxy uses: X-Forwarded-For (default) or e.g. CF-Connecting-IP.
     // Only the chosen one is read, so clients can't pick a header the proxy passes through.
-    $hdr = strtoupper(str_replace('-', '_', (string)(getenv('HUSH_FORWARDED_HEADER') ?: (defined('HUSH_FORWARDED_HEADER') ? HUSH_FORWARDED_HEADER : 'X-Forwarded-For'))));
+    $hdr = strtoupper(str_replace('-', '_', (string)(getenv('LULLWIRE_FORWARDED_HEADER') ?: getenv('HUSH_FORWARDED_HEADER') ?: (defined('LULLWIRE_FORWARDED_HEADER') ? LULLWIRE_FORWARDED_HEADER : 'X-Forwarded-For'))));
     if ($hdr !== 'X_FORWARDED_FOR') {
         $v = trim((string)($_SERVER['HTTP_' . $hdr] ?? ''));
         return filter_var($v, FILTER_VALIDATE_IP) ? $v : $remote;
@@ -139,8 +141,8 @@ $dataReal = rtrim(realpath(DATA) ?: (realpath(dirname(DATA)) ?: dirname(DATA)) .
 $appReal = rtrim(realpath(__DIR__), '/') . '/';
 $docRoot = realpath((string)($_SERVER['DOCUMENT_ROOT'] ?? '')) ?: null;
 $insideWebRoot = strpos($dataReal, $appReal) === 0 || ($docRoot && $docRoot !== '/' && strpos($dataReal, rtrim($docRoot, '/') . '/') === 0);
-if ($insideWebRoot && !preg_match('/Apache|LiteSpeed/i', $software) && !getenv('HUSH_ROUTER')) {
-    fail(500, 'data folder is inside the web root on a server that ignores .htaccess; set HUSH_DATA (see docs/SELF-HOSTING.md)');
+if ($insideWebRoot && !preg_match('/Apache|LiteSpeed/i', $software) && !getenv('LULLWIRE_ROUTER')) {
+    fail(500, 'data folder is inside the web root on a server that ignores .htaccess; set LULLWIRE_DATA (see docs/SELF-HOSTING.md)');
 }
 
 foreach ([DATA, RECOVER, LIMITS] as $d) if (!is_dir($d)) @mkdir($d, 0700, true);
