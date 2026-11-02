@@ -7,5 +7,5 @@ package web
 
 import "embed"
 
-//go:embed index.html style.css app.js call.js worklet.js sw.js config.js manifest.json icon.svg icon-192.png icon-512.png icon-maskable.png apple-touch-icon.png vendor/*.js vendor/*.txt
+//go:embed index.html style.css app.js call.js worklet.js sw.js release.json config.js manifest.json icon.svg icon-192.png icon-512.png icon-maskable.png apple-touch-icon.png vendor/*.js vendor/*.txt
 var Files embed.FS

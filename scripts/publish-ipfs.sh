@@ -15,6 +15,13 @@ trap 'rm -rf "$OUT"' EXIT
 
 cp "$SRC"/{index.html,style.css,app.js,call.js,worklet.js,sw.js,manifest.json,icon.svg,icon-192.png,icon-512.png,icon-maskable.png,apple-touch-icon.png} "$OUT"/ && cp -r "$SRC/vendor" "$OUT"/
 printf 'window.LULLWIRE_CONFIG = { relay: "%s" };\n' "$RELAY" > "$OUT/config.js"
+# Sign this copy (config.js changed), so installed apps accept it as an update.
+VERSION="$(sed -n 's/^var version = "\(.*\)"/\1/p' "$SRC/../cmd/lullwire-relay/main.go")"
+if grep -q "^const RELEASE_KEY = '[A-Za-z0-9_-]\{80,\}';" "$OUT/sw.js"; then
+  (cd "$SRC/.." && go run ./cmd/lullwire-release sign "$VERSION" -dir "$OUT" && go run ./cmd/lullwire-release verify -dir "$OUT")
+else
+  echo "note: no release key pinned in sw.js yet, so this copy is unsigned (see docs/RELEASING.md)" >&2
+fi
 
 CID="$(ipfs add -r -Q --cid-version=1 "$OUT")"
 echo "CID: $CID"

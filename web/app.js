@@ -1656,6 +1656,31 @@ if (typeof document !== 'undefined') (() => {
     handleCode(text);
   }
 
+  // ----- which code is running -----
+  // The service worker checks app code against the release key; it tells us what it runs.
+  let build = AND ? { android: true } : { none: true };
+  window.__lullwireBuild = () => build.android ? 'Built into this app (signed APK)'
+    : build.none ? 'Loaded straight from the server (not verified)'
+    : !build.signed ? 'Unsigned build'
+    : 'Version ' + build.version + ', signed release (key ' + build.key.match(/.{4}/g).join(' ') + ')' +
+      (build.next ? '; ' + build.next + ' is ready for the next start' : '') +
+      (build.warn ? '. Refused an update from the server: ' + build.warn : '');
+  function watchServiceWorker() {
+    if (!('serviceWorker' in navigator) || AND) return;
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('message', e => {
+      const d = e.data || {};
+      if (d.t === 'lullwire-status') build = d;
+      else if (d.t === 'lullwire-update') { build.next = d.version; toast('Lullwire Relay ' + d.version + ' is ready. It starts the next time you open the app.', 6000); }
+      else if (d.t === 'lullwire-refused') { build.warn = d.why; toast('The server offered app code that isn\'t signed by the developer. You\'re still on the verified version (see Settings).', 9000); }
+    });
+    const ask = () => navigator.serviceWorker.controller && navigator.serviceWorker.controller.postMessage({ q: 'status' });
+    navigator.serviceWorker.ready.then(ask);
+    navigator.serviceWorker.addEventListener('controllerchange', ask);
+  }
+  // Delivery path, for tests and Settings.
+  window.__lullwireDelivery = () => mail.ws ? 'socket' : 'poll';
+
   async function keepPrekeysFresh() { if (me && await rotatePrekeys(me)) await saveMe(); }
   function start() {
     goHome(); handleHash();
@@ -1714,7 +1739,7 @@ if (typeof document !== 'undefined') (() => {
       return;
     }
     if (!window.isSecureContext || !crypto.subtle) { document.body.textContent = 'Lullwire Relay needs a secure (https) connection.'; return; }
-    if ('serviceWorker' in navigator && !/LullwireAndroid/.test(navigator.userAgent)) navigator.serviceWorker.register('sw.js').catch(() => {});
+    watchServiceWorker();
     db = await openVaultDB();
     vaultHdr = await tx('meta', 'readonly', s => s.get('vault'));
     if (!vaultHdr) {

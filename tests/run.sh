@@ -106,5 +106,16 @@ if [ "$E2E" = 1 ]; then
     rm -rf "$LULLWIRE_DATA/limits"
   fi
   BASE="$BASE" JOIN="$JOIN" python3 tests/e2e.py
+  if [ "$IMPL" = go ]; then
+    echo "== signed releases (service worker)"
+    go build -o "$TMP/lwr" ./cmd/lullwire-release
+    cp -r web "$TMP/sweb"
+    "$TMP/lwr" keygen -key "$TMP/k1.pem" -dir "$TMP/sweb" >/dev/null && "$TMP/lwr" sign 0.6.0 -key "$TMP/k1.pem" -dir "$TMP/sweb" >/dev/null
+    "$TMP/lullwire-relay" -addr "localhost:$((PORT+3))" -data "$TMP/swdata" -web "$TMP/sweb" >>"$TMP/server.log" 2>&1 &
+    SWPID=$!
+    for _ in $(seq 50); do curl -s -o /dev/null "http://localhost:$((PORT+3))/index.html" && break; sleep 0.1; done
+    BASE="http://localhost:$((PORT+3))/index.html" WEB="$TMP/sweb" LWR="$TMP/lwr" KEY="$TMP/k1.pem" KEY2="$TMP/k2.pem" python3 tests/sw.py || { kill $SWPID; exit 1; }
+    kill $SWPID 2>/dev/null || true
+  fi
 fi
 echo "All tests passed."
