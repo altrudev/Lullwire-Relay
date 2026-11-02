@@ -1,10 +1,10 @@
 <p align="center"><img src="assets/brand/banner.png" alt="Hush Relay: private chat, voice and video on a relay you own" width="100%"></p>
 
-# Hush Relay
+# Lullwire Relay, formerly Hush Relay
 
 **A small, self-hostable, end-to-end encrypted messenger with voice and video calls. No accounts, no phone numbers, no app store.**
 
-[**Download**](https://github.com/altrudev/Hush-Relay/releases/latest) · [Install & use](#install) · [Host a relay](docs/SELF-HOSTING.md) · [Security](SECURITY.md) · [Protocol](docs/PROTOCOL.md)
+[**Download**](https://github.com/altrudev/Lullwire-Relay/releases/latest) · [Install & use](#install) · [Host a relay](docs/SELF-HOSTING.md) · [Security](SECURITY.md) · [Protocol](docs/PROTOCOL.md)
 
 Hush Relay is two pieces:
 
