@@ -18,6 +18,8 @@ package main
 //
 // Send connection, after {"op":"send"} -> {"op":"ready","send":true}:
 //
+//	(on an invite-only relay the hello carries "j": sha256("lullwire-join|" + join code),
+//	so only people who were invited can open one; it doesn't say which mailbox is theirs)
 //	app -> relay  binary 0x01 | request id (4) | box (16) | envelope      deliver to a mailbox here
 //	app -> relay  binary 0x00 | request id (4) | 16 bytes | noise          cover traffic
 //	relay -> app  text  {"op":"put","r":<id>,"ok":true} or {...,"e":<status>}  (cover gets "ok" too)
@@ -27,6 +29,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -66,18 +69,20 @@ func (h *liveHub) coverDelay() time.Duration {
 // open ones. It returns a release function, or nil when over a limit.
 func (r *Relay) liveSlot(req *http.Request, kind, box string) func() {
 	key, distinct := r.clientKey(req)
-	limit, perMin := livePerKey, newLivePerMin
-	if !distinct && r.onion {
+	limit, perMin, global := livePerKey, newLivePerMin, false
+	if !distinct && r.onion { // behind Tor every client looks the same
 		if box != "" {
 			key, limit = "box|"+box, onionLivePerBox
 		} else {
-			key, limit = "send|onion", onionLiveTotal/4
+			key, limit, perMin = "send|onion", onionLiveTotal/2, onionNewPerMin
 		}
-		if !r.allow("live-new-all", "onion", time.Minute, onionNewPerMin) {
-			return nil
-		}
+		global = true
 	}
 	if !r.allow("live-new", kind+"|"+key, time.Minute, perMin) {
+		return nil
+	}
+	// The relay-wide budget (Tor) is charged only for connections that passed every other check.
+	if global && !r.allow("live-new-all", "onion", time.Minute, onionNewPerMin) {
 		return nil
 	}
 	key = kind + "|" + key
@@ -239,7 +244,11 @@ func (r *Relay) serveMail(c *wsConn, req *http.Request, hello liveHello) {
 }
 
 // serveSend carries deliveries (and cover traffic) for an app, without knowing who it is.
-func (r *Relay) serveSend(c *wsConn, req *http.Request) {
+func (r *Relay) serveSend(c *wsConn, req *http.Request, hello liveHello) {
+	if r.inviteOnly() && subtle.ConstantTimeCompare([]byte(hello.J), []byte(r.joinHash)) != 1 {
+		c.sendJSON(map[string]string{"op": "error", "msg": "join code required"})
+		return
+	}
 	release := r.liveSlot(req, "send", "")
 	if release == nil {
 		c.sendJSON(map[string]string{"op": "error", "msg": "too many live connections"})

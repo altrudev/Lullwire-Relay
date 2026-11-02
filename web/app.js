@@ -592,8 +592,15 @@ if (typeof document !== 'undefined') (() => {
   const jitter = ms => Math.round(ms * (0.7 + Math.random() * 0.6));
   let me = null, current = null, started = false, paused = false, pendingInvite = null;
   const contacts = new Map(), seen = new Set(), locks = new Map();
-  // Serialize ratchet work per contact so sends and receives never interleave.
+  // Serialize work per contact: sends, receives and every change the user makes (verify,
+  // block, delete, accept) run one at a time, so none can undo another.
   const lock = (id, fn) => { const p = (locks.get(id) || Promise.resolve()).then(fn); locks.set(id, p.catch(() => {})); return p; };
+  // Change a contact under its lock and save it. fn returns false to skip saving.
+  const edit = (id, fn) => lock(id, async () => {
+    const c = contacts.get(id); if (!c) return null;
+    if ((await fn(c)) !== false) await saveContact(c);
+    return c;
+  });
 
   // ----- small helpers -----
   let toastTimer;
@@ -771,7 +778,9 @@ if (typeof document !== 'undefined') (() => {
     if (o.p === me.pub) throw new Error('That is your own invite');
     await importPub(o.p);
     const id = await contactId(o.p);
-    let c = contacts.get(id), fresh = false;
+    let fresh = false;
+    const c = await lock(id, async () => {
+    let c = contacts.get(id);
     if (c) {
       if (c.blocked) {
         if (!confirm(c.name + ' is blocked. Unblock them?')) return c;
@@ -796,7 +805,10 @@ if (typeof document !== 'undefined') (() => {
       }
       contacts.set(id, c); fresh = true;
     }
-    await saveContact(c); scheduleSync();
+    await saveContact(c);
+    return c;
+    });
+    scheduleSync();
     // Say hello so they see you straight away (and know you came from their invite).
     if (fresh && typeof o.k === 'string') post(c, { t: 'hello', k: o.k.slice(0, 64), id: hex(rand(8)), ts: Date.now() }).catch(() => {});
     return c;
@@ -832,7 +844,7 @@ if (typeof document !== 'undefined') (() => {
     const c = contacts.get(id); if (!c) return;
     if (current !== id) shown = PAGE;
     show('vChat', c.name, trustLabel(c)); current = id;
-    if (c.unread) { c.unread = 0; await saveContact(c); }
+    if (c.unread) await edit(id, x => { if (!x.unread) return false; x.unread = 0; });
     renderTrust(c);
     await renderMsgs();
   }
@@ -860,17 +872,18 @@ if (typeof document !== 'undefined') (() => {
   }
   $('#verifyBtn').onclick = async () => {
     const c = contacts.get(current); if (!c) return;
-    c.verified = true; await saveContact(c); scheduleSync(); toast('Verified'); openChat(c.id);
+    await edit(c.id, x => { x.verified = true; }); scheduleSync(); toast('Verified'); openChat(c.id);
   };
   $('#deleteReqBtn').onclick = async () => {
     const c = contacts.get(current); if (!c) return;
     if (!c.request && !confirm('Delete ' + c.name + ' and your chat history with them? They can still message you later, as a new request.')) return;
-    contacts.delete(c.id); await dropContact(c.id); if (!c.request) scheduleSync(); goHome();
+    await lock(c.id, async () => { contacts.delete(c.id); await dropContact(c.id); });
+    if (!c.request) scheduleSync(); goHome();
   };
   $('#blockBtn').onclick = async () => {
     const c = contacts.get(current); if (!c) return;
     if (!confirm('Block ' + c.name + '? You won\'t receive their messages.')) return;
-    c.blocked = true; await saveContact(c); scheduleSync(); goHome();
+    await edit(c.id, x => { x.blocked = true; }); scheduleSync(); goHome();
   };
 
   let renderSeq = 0;
@@ -920,10 +933,10 @@ if (typeof document !== 'undefined') (() => {
   }
   async function send(text) {
     const c = contacts.get(current); if (!c || !text.trim()) return;
-    if (c.request) { c.request = false; scheduleSync(); renderTrust(c); show('vChat', c.name, trustLabel(c)); current = c.id; }
+    if (c.request) { await edit(c.id, x => { x.request = false; }); scheduleSync(); renderTrust(c); show('vChat', c.name, trustLabel(c)); current = c.id; }
     const m = { contact: c.id, dir: 'out', txt: text, ts: Date.now(), mid: hex(rand(8)), state: 'sending' };
     m.id = await putMessage(m);
-    c.ts = m.ts; c.last = 'You: ' + text.slice(0, 80); await saveContact(c);
+    await edit(c.id, x => { x.ts = m.ts; x.last = 'You: ' + text.slice(0, 80); });
     await deliver(c, m);
   }
 
@@ -1032,33 +1045,53 @@ if (typeof document !== 'undefined') (() => {
     return r.ok;
   }
   // The send connection: no identity, just deliveries (and cover traffic) with answers.
-  function openSend(url) {
-    let ws;
-    try { ws = new WebSocket(url); } catch { return null; }
-    ws.binaryType = 'arraybuffer';
-    ws.onopen = () => ws.send(JSON.stringify({ op: 'send' }));
-    ws.onmessage = ev => {
-      if (typeof ev.data !== 'string') return;
-      let m; try { m = JSON.parse(ev.data); } catch { return; }
-      if (m.op === 'ready') mail.send = ws;
-      else if (m.op === 'put') { const res = mail.reqs.get(m.r); if (res) { mail.reqs.delete(m.r); res(!!m.ok); } }
-    };
-    ws.onclose = ws.onerror = () => {
-      if (mail.send === ws) mail.send = null;
-      for (const res of mail.reqs.values()) res(null);
-      mail.reqs.clear();
-    };
-    return ws;
+  // It runs on its own random schedule, unrelated to the mail connection, so the relay
+  // can't pair the two by when they open and close. On an invite-only relay it proves
+  // knowledge of the join code (shared by everyone invited), not which mailbox is ours.
+  function runSend() {
+    return new Promise(async resolve => {
+      let ws, done = false;
+      const j = me.join ? await sha('lullwire-join|' + me.join) : undefined;
+      const finish = () => {
+        if (done) return; done = true; clearInterval(watch); clearTimeout(openTimer);
+        if (mail.send === ws) mail.send = null;
+        for (const res of mail.reqs.values()) res(null);
+        mail.reqs.clear();
+        try { ws.close(); } catch {}
+        resolve();
+      };
+      try { ws = new WebSocket(liveURL(me.relay)); } catch { return resolve(); }
+      ws.binaryType = 'arraybuffer';
+      const openTimer = setTimeout(finish, 12000);
+      ws.onopen = () => ws.send(JSON.stringify({ op: 'send', j }));
+      ws.onmessage = ev => {
+        if (typeof ev.data !== 'string') return;
+        let m; try { m = JSON.parse(ev.data); } catch { return; }
+        if (m.op === 'ready') { mail.send = ws; clearTimeout(openTimer); }
+        else if (m.op === 'error') finish();
+        else if (m.op === 'put') { const res = mail.reqs.get(m.r); if (res) { mail.reqs.delete(m.r); res(!!m.ok); } }
+      };
+      ws.onclose = ws.onerror = finish;
+      const watch = setInterval(() => { if (!me || !awake()) finish(); }, 1000);
+    });
+  }
+  async function sendLoop() {
+    while (me) {
+      if (!awake() || !me.mail || Date.now() <= mail.pollUntil) { await sleep(1000); continue; }
+      await sleep(1000 + randInt(20000)); // until then, deliveries go over HTTPS
+      if (!me || !awake()) continue;
+      await runSend();
+      await sleep(2000 + randInt(10000));
+    }
   }
   function runSocket() {
     return new Promise(resolve => {
-      let ws, sendWs = null, ready = false, done = false, chain = Promise.resolve(), acks = [], ackTimer = null, coverTimer = null;
+      let ws, ready = false, done = false, chain = Promise.resolve(), acks = [], ackTimer = null, coverTimer = null;
       const finish = how => {
         if (done) return; done = true;
         clearInterval(watch); clearTimeout(openTimer); clearTimeout(coverTimer); clearTimeout(ackTimer);
         if (mail.ws === ws) mail.ws = null;
         try { ws.close(); } catch {}
-        try { sendWs && sendWs.close(); } catch {}
         resolve(how);
       };
       const url = liveURL(me.relay);
@@ -1080,7 +1113,6 @@ if (typeof document !== 'undefined') (() => {
         let m; try { m = JSON.parse(ev.data); } catch { return; }
         if (m.op === 'ready') {
           ready = true; mail.ws = ws; mail.fails = 0; clearTimeout(openTimer); cover();
-          sendWs = openSend(url);
           if ($('#toast').textContent === 'Offline — reconnecting…') toast('');
         } else if (m.op === 'error') finish(ready ? 'ok' : 'fail');
         else if (m.op === 'n') ack(hex(rand(11))); // cover traffic in: answered with an ack, like real mail
@@ -1734,7 +1766,7 @@ if (typeof document !== 'undefined') (() => {
     // Learn what the relay supports (live connection, calls) before choosing how to receive.
     relayInfo(me.relay).then(async info => {
       if (info.ok && (info.calls !== !!me.calls || info.mail !== !!me.mail)) { me.calls = info.calls; me.mail = info.mail; await saveMe(); }
-    }).catch(() => {}).finally(liveLoop);
+    }).catch(() => {}).finally(() => { liveLoop(); sendLoop(); });
     // After an update from 0.5, sessions were renewed: tell each contact.
     for (const c of contacts.values()) if (c.needReset) {
       c.needReset = false; saveContact(c);
@@ -1777,14 +1809,50 @@ if (typeof document !== 'undefined') (() => {
     return true;
   }
 
+  async function migrateOrExplain(legacy) {
+    try { await migrateLegacy(legacy); return true; }
+    catch (e) {
+      console.warn('moving the 0.5 data failed', e);
+      show('vLock'); $('#unlockForm').hidden = true;
+      $('#vLock h2').textContent = 'Couldn\'t finish updating your data';
+      $('#vLock .hero p').textContent = 'Your chats from the older version are safe and nothing was deleted. ' +
+        (e && e.name === 'QuotaExceededError' ? 'This device is out of storage space: free some up, then reopen the app.' : 'Reopen the app to try again (' + (e && e.message || e) + ').');
+      return false;
+    }
+  }
+
   // App lock on: a new master secret, and every record re-encrypted with it, all in one
   // transaction with the new header, so copies of the old (unlocked) files are no help.
+  // Waits until no contact work and no queued write is in progress.
+  async function settle() {
+    for (let i = 0; i < 50; i++) {
+      const busy = [...locks.values(), ...writeQ.values()];
+      await Promise.all(busy);
+      await sleep(50);
+      if ([...locks.values(), ...writeQ.values()].every(p => busy.includes(p))) return;
+    }
+  }
   async function rekeyVault(header, newMk) {
+    // Nothing may be written with the old key after we read: stop receiving, let work finish.
+    const was = paused; paused = true;
+    try {
+      if (mail.ws) mail.ws.close();
+      await settle();
+      await rekeyNow(header, newMk);
+    } finally { paused = was; }
+  }
+  async function rekeyNow(header, newMk) {
     const nk = await vaultKeys(newMk), nb = new Map();
     const blindNew = async id => { let x = nb.get(id); if (!x) { x = await blindId(nk, id); nb.set(id, x); } return x; };
-    const all = n => tx(n, 'readonly', s => s.getAll());
-    const keys = await tx('kv', 'readonly', s => s.getAllKeys());
-    const kvs = await all('kv'), cs = await all('contacts'), ms = await all('messages');
+    let keys, kvs, cs, ms; // one read transaction, so keys and records belong together
+    await new Promise((res, rej) => {
+      const t = db.transaction(['kv', 'contacts', 'messages'], 'readonly');
+      t.objectStore('kv').getAllKeys().onsuccess = e => { keys = e.target.result; };
+      t.objectStore('kv').getAll().onsuccess = e => { kvs = e.target.result; };
+      t.objectStore('contacts').getAll().onsuccess = e => { cs = e.target.result; };
+      t.objectStore('messages').getAll().onsuccess = e => { ms = e.target.result; };
+      t.oncomplete = res; t.onerror = () => rej(t.error);
+    });
     const kvOut = [], cOut = [], mOut = [], byBlind = new Map();
     for (let i = 0; i < keys.length; i++) kvOut.push([keys[i], { d: await sealRecord(nk, 'kv|' + keys[i], await openRecord(vk, 'kv|' + keys[i], kvs[i].d)) }]);
     for (const r of cs) {
@@ -1829,7 +1897,7 @@ if (typeof document !== 'undefined') (() => {
       if (legacy) await tx('meta', 'readwrite', s => s.put(true, 'migrating')); // before the header, so a restart resumes
       await setHeader(await defaultHeader(mk));
       await useVault(mk);
-      if (legacy) await migrateLegacy(legacy);
+      if (legacy && !(await migrateOrExplain(legacy))) return;
     } else {
       let mk;
       try { mk = vaultHdr.mode === 'pass' ? await unlockScreen() : await unwrapHeader(vaultHdr); }
@@ -1840,7 +1908,7 @@ if (typeof document !== 'undefined') (() => {
       }
       $('#unlockForm').hidden = false;
       await useVault(mk);
-      if (legacy && await tx('meta', 'readonly', s => s.get('migrating'))) await migrateLegacy(legacy); // finish an interrupted move
+      if (legacy && await tx('meta', 'readonly', s => s.get('migrating'))) { if (!(await migrateOrExplain(legacy))) return; } // finish an interrupted move
       else if (legacy) { legacy.close(); indexedDB.deleteDatabase('hush2'); } // left over from a completed move
       if (!me) me = await loadMe();
     }

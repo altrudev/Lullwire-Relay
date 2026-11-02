@@ -39,7 +39,7 @@ Please report privately through GitHub's **Report a vulnerability** button (the 
 
 1. **No one-time prekeys.** A session's first messages get forward secrecy once the signed prekey they used is deleted (prekeys are replaced every 14 days and kept 45). Until then, someone who records traffic and later steals the device can read those first messages. Sessions with contacts still on Hush Relay 0.5, or whose prekey we hold is too old, open the older way, which depends on identity keys alone. Ongoing conversations always have forward secrecy.
 2. **Key-compromise impersonation.** Someone who steals your identity key can pose as anyone *to you*.
-3. **The relay sees metadata:** IP addresses, timing, which mailbox receives mail, the size class, and whether mail is waiting. Deliveries don't name the sender, but a relay can often guess by matching IP addresses and timing between your receiving and sending connections. Cover traffic hides timing from the network, not from the relay, and doesn't hide that you use Lullwire or are online. Use a relay you trust, Tor, or a tunnel that hides client IPs if this matters.
+3. **The relay sees metadata:** IP addresses, timing, which mailbox receives mail, the size class, and whether mail is waiting. Deliveries don't name the sender, and the sending connection opens and closes on its own random schedule, but a relay that sees your IP address can usually still match it to your receiving connection. Tor hides your address, not the timing of what you send. Cover traffic hides timing from the network, not from the relay, and doesn't hide that you use Lullwire or are online. Use a relay you trust, Tor, or a tunnel that hides client IPs if this matters.
 4. **Web delivery.** On a first visit, the browser trusts whatever code the server sends. After that, an installed web app runs only releases signed with the pinned key, but browsers always let a server replace the service worker (`sw.js`) itself, so a fully compromised server can still ship new code. The Android app, or a pinned IPFS CID, avoids this. Whoever holds the release signing key can sign anything; it is kept offline.
 5. **Shared origins.** Browser storage is per origin. Don't host the app on an origin that also runs other people's code (for example, a shared cPanel domain with other apps).
 6. **Device linking** uses a 12-digit comparison code (about 40 bits) inside a 10-minute window. Compare the code; never approve a request you didn't start.
@@ -178,3 +178,15 @@ A separate reviewer was given the 0.6 changes (protocol v4, the vault, the live 
 | 60 | Low | Deliveries over the live connection skipped the relay-wide cap on heavy work | They share it |
 | 61 | Info | Page loads to unlisted paths, and app files missing from the cache, fell back to the network under a signed release | The verified app for every page load in scope; missing files fail closed |
 | 62 | Info | The compatibility suite wasn't run by tests/run.sh; a Keystore failure fell back silently | Both run and reported |
+
+### 2026-11-02: second review (of the fixes)
+
+The same reviewer re-tested every fix with its proofs of concept; all held. It found three issues in the fixes and one gap, now fixed and re-tested with the same proofs of concept:
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 63 | Medium | Receiving on a copy of the contact (#56) could undo a Block, Verify, Delete or accept made at the same moment | Every change to a contact, by the user or by receiving, runs under the same per-contact lock |
+| 64 | Low–Medium | Turning on the app lock while messages arrived could leave one stored with the old key | Delivery pauses and pending work finishes before re-encrypting; everything is read in one transaction |
+| 65 | Low–Medium | Behind Tor, one anonymous client could use up the relay-wide budget for new live connections | Send connections on invite-only relays prove the join code; the relay-wide budget is charged only after every other check |
+| 66 | Low | A move from the 0.5 database that kept failing (a full device) left the app on a blank screen | The reason is shown, and the old data is kept |
+| 67 | Info | The send connection opened and closed together with the mail connection; a missing cached file was never fetched again | Its own random schedule; the service worker re-fetches the current signed release |

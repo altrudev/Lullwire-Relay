@@ -108,7 +108,7 @@ The app keeps two WebSockets open at `/live` (the relay URL with its last path s
 
 An envelope is pushed once per connection; anything unacknowledged is pushed again on the next one (the app reconnects after a storage error for that reason). At most about 2 MiB is in flight unacknowledged.
 
-**Send connection** (delivering). It carries nothing that identifies the app: the first frame is `{"op":"send"}`, answered with `{"op":"ready","send":true}`. Deliveries therefore aren't tied to the sender's mailbox, just as with plain HTTPS deliveries; the relay can still guess by IP address and timing (known limit 3).
+**Send connection** (delivering). It carries nothing that identifies the app's mailbox: the first frame is `{"op":"send"}` (on an invite-only relay `{"op":"send","j": SHA-256("lullwire-join|" + joinCode)}`, which only shows that the app was invited), answered with `{"op":"ready","send":true}`. The app opens and closes it on its own random schedule, not with the mail connection; until it is up, deliveries go over HTTPS. Deliveries therefore aren't tied to the sender's mailbox, just as with plain HTTPS deliveries; a relay that sees IP addresses can still guess (known limit 3).
 
 | Direction | Frame | Meaning |
 |---|---|---|
@@ -118,7 +118,7 @@ An envelope is pushed once per connection; anything unacknowledged is pushed aga
 
 Deliveries pass exactly the checks an HTTP `put` does, including the relay-wide cap on concurrent heavy work. Deliveries to contacts on other relays go over HTTPS.
 
-**Limits.** Each kind of connection counts like a long-poll towards the per-client limit (6 each, or 2 mail connections per mailbox behind Tor), and new connections are limited to 60 per client per minute (1,200 per minute relay-wide behind Tor). The relay remembers a mailbox for quicker answers only once mail has arrived for it. It pings at varying intervals (20 s ± 25%); 60 seconds without data or an answered ping ends a connection.
+**Limits.** Each kind of connection counts like a long-poll towards the per-client limit (6 each, or 2 mail connections per mailbox behind Tor), and new connections are limited to 60 per client per minute. Behind Tor, where clients look alike, there is also a relay-wide budget (1,200 per minute), charged only for connections that passed every other check (membership for mail, the join proof for sending), so on an invite-only relay strangers can't use it up. The relay remembers a mailbox for quicker answers only once mail has arrived for it. It pings at varying intervals (20 s ± 25%); 60 seconds without data or an answered ping ends a connection.
 
 **Cover traffic.** With it on, both directions carry noise shaped like the real traffic, with the same sizes, replies and acknowledgements, at random intervals of 20–90 seconds (about 1 MB an hour), so someone watching the network can't tell real sends and deliveries from noise. Without the live connections (PHP relay, or a proxy that doesn't pass WebSockets), the app long-polls with randomised waits (14–20 s) and gaps.
 

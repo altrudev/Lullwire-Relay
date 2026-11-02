@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -21,9 +22,13 @@ func mailHello(t *testing.T, w *testWS, s string, cover bool) {
 	}
 }
 
-func sendHello(t *testing.T, w *testWS) {
+func sendHello(t *testing.T, w *testWS, code ...string) {
 	t.Helper()
-	w.json(map[string]any{"op": "send"})
+	h := map[string]any{"op": "send"}
+	if len(code) > 0 {
+		h["j"] = sha256hex("lullwire-join|" + code[0])
+	}
+	w.json(h)
 	if m := w.expectOp(t, "ready"); m["send"] != true {
 		t.Fatalf("ready without send: %v", m)
 	}
@@ -105,8 +110,14 @@ func TestSendChecksAndCover(t *testing.T) {
 	r.mu.Lock()
 	r.members[boxOf(member)] = true
 	r.mu.Unlock()
+	// On an invite-only relay a send connection needs the join code (not a mailbox).
+	nope := dialWS(t, srv, "/live")
+	nope.json(map[string]any{"op": "send", "j": sha256hex("lullwire-join|wrong")})
+	if m := nope.expectOp(t, "error"); !strings.Contains(m["msg"].(string), "join") {
+		t.Fatal(m)
+	}
 	w := dialWS(t, srv, "/live")
-	sendHello(t, w)
+	sendHello(t, w, "code-1")
 	cases := []struct {
 		kind byte
 		box  string
@@ -194,4 +205,31 @@ func TestLiveConnectionLimits(t *testing.T) {
 	if _, info := do(h, call{url: "/relay.php?a=info", body: "{}"}); info["mail"] != true {
 		t.Fatalf("info: %v", info)
 	}
+}
+
+func TestOnionBudgetsNotExhaustedByOneClient(t *testing.T) {
+	r, h := newTestRelay(t, true)
+	r.SetJoinCode("onion-code")
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	member := secret(90)
+	r.mu.Lock()
+	r.members[boxOf(member)] = true
+	r.mu.Unlock()
+	// An anonymous attacker behind Tor opening send connections without the join code,
+	// and mail connections for made-up mailboxes: all refused before any budget is used.
+	for i := 0; i < onionNewPerMin+50; i++ {
+		c := dialWS(t, srv, "/live")
+		if i%2 == 0 {
+			c.json(map[string]any{"op": "send"})
+		} else {
+			c.json(map[string]any{"op": "mail", "s": secret(5000 + i)})
+		}
+		_, _, _ = c.read(time.Second)
+		c.c.Close()
+	}
+	ok := dialWS(t, srv, "/live")
+	sendHello(t, ok, "onion-code")
+	m := dialWS(t, srv, "/live")
+	mailHello(t, m, member, false)
 }

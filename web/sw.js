@@ -81,6 +81,17 @@ self.addEventListener('activate', e => {
   })());
 });
 
+// A file has gone missing from the verified cache: fetch the current release again, checked as always.
+let repairing = null;
+function repair(st) {
+  return repairing || (repairing = (async () => {
+    const m = await signedRelease();
+    if (m.version !== st.version) return; // the update check handles other versions
+    const s = await stage(m), cur = await getState();
+    await setState({ ...cur, cache: s.cache, files: s.files });
+    if (cur.cache !== s.cache) await caches.delete(cur.cache);
+  })().catch(() => {}).finally(() => { repairing = null; }));
+}
 async function tell(msg) { for (const c of await self.clients.matchAll()) c.postMessage(msg); }
 let checking = null;
 // Look for a newer signed release; stage it for the next start, or report a refusal.
@@ -129,7 +140,9 @@ self.addEventListener('fetch', e => {
     const file = req.mode === 'navigate' ? 'index.html' : fileOf(req.url);
     if (st.files && st.files.includes(file)) {
       const hit = await (await caches.open(st.cache)).match(file);
-      return hit || new Response('This file is missing from the verified copy of the app. Reload to repair it.', { status: 503 });
+      if (hit) return hit;
+      e.waitUntil(repair(st));
+      return new Response('This file is missing from the verified copy of the app. It is being fetched again; reload in a moment.', { status: 503 });
     }
     return fetch(req); // not part of the app (release.json, for instance): nothing to verify
   })());

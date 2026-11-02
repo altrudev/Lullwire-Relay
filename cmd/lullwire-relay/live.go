@@ -348,6 +348,7 @@ type liveHello struct {
 	Op    string `json:"op"`
 	Room  string `json:"room"`
 	S     string `json:"s"`
+	J     string `json:"j"` // send connections on invite-only relays: proof of the join code
 	Cover bool   `json:"cover"`
 }
 
@@ -366,7 +367,7 @@ func (r *Relay) serveLive(w http.ResponseWriter, req *http.Request) {
 		if hello.Op == "mail" {
 			r.serveMail(c, req, hello)
 		} else {
-			r.serveSend(c, req)
+			r.serveSend(c, req, hello)
 		}
 		return
 	}

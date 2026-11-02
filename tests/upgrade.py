@@ -73,7 +73,7 @@ with sync_playwright() as pw:
     say(A, 'from lullwire to 0.5'); B.wait_for_selector('.m.in:has-text("from lullwire to 0.5")', timeout=15000)
     say(B, 'from 0.5 to lullwire'); A.wait_for_selector('.m.in:has-text("from 0.5 to lullwire")', timeout=15000)
     check(True, 'Lullwire and Hush Relay 0.5 message both ways after the upgrade')
-    try: A.wait_for_function("window.__lullwireDelivery() === 'socket'", timeout=10000); sock = True
+    try: A.wait_for_function("window.__lullwireDelivery() === 'socket'", timeout=40000); sock = True
     except Exception: sock = False
     check(sock, 'delivery uses the live connection')
 
