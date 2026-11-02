@@ -116,6 +116,18 @@ if [ "$E2E" = 1 ]; then
     for _ in $(seq 50); do curl -s -o /dev/null "http://localhost:$((PORT+3))/index.html" && break; sleep 0.1; done
     BASE="http://localhost:$((PORT+3))/index.html" WEB="$TMP/sweb" LWR="$TMP/lwr" KEY="$TMP/k1.pem" KEY2="$TMP/k2.pem" python3 tests/sw.py || { kill $SWPID; exit 1; }
     kill $SWPID 2>/dev/null || true
+    echo "== upgrade from Hush Relay 0.5"
+    mkdir -p "$TMP/old" "$TMP/site"
+    if git cat-file -e 805d966 2>/dev/null; then
+      git archive 805d966 web | tar -x -C "$TMP/old"
+      "$TMP/lullwire-relay" -addr "localhost:$((PORT+4))" -data "$TMP/updata" -web "$TMP/site" >>"$TMP/server.log" 2>&1 &
+      UPPID=$!
+      sleep 0.5
+      BASE="http://localhost:$((PORT+4))/index.html" SITE="$TMP/site" OLD="$TMP/old/web" NEW="$PWD/web" python3 tests/upgrade.py || { kill $UPPID; exit 1; }
+      kill $UPPID 2>/dev/null || true
+    else
+      echo "  skipped: the 0.5.0 commit (805d966) is not in this clone"
+    fi
   fi
 fi
 echo "All tests passed."

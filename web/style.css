@@ -103,7 +103,7 @@ code,.code{font-family:var(--mono)}
 
 /* sheets (invite, safety) */
 .sheet{text-align:center}
-.qr{display:block;margin:16px auto;width:240px;max-width:72vw;image-rendering:pixelated;background:#fff;padding:10px;border-radius:14px;border:1px solid var(--line)}
+.qr{display:block;margin:16px auto;width:320px;max-width:86vw;image-rendering:pixelated;background:#fff;padding:10px;border-radius:14px;border:1px solid var(--line)}
 .safety{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
 .safety span{background:var(--surface-2);border-radius:8px;padding:8px 0;font:600 15px var(--mono);letter-spacing:.04em}
 .code-big{font:650 26px var(--mono);letter-spacing:3px;margin:8px 0}

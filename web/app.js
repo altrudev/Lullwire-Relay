@@ -1689,10 +1689,10 @@ if (typeof document !== 'undefined') (() => {
     if (me.join) fetch(me.relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret, code: me.join }) }).catch(() => {});
     if (has('setBackground')) AND.setBackground(me.bg !== false);
     keepPrekeysFresh(); setInterval(keepPrekeysFresh, 6 * 3600000);
-    liveLoop();
-    relayInfo(me.relay).then(async info => { // keep what the relay supports up to date
+    // Learn what the relay supports (live connection, calls) before choosing how to receive.
+    relayInfo(me.relay).then(async info => {
       if (info.ok && (info.calls !== !!me.calls || info.mail !== !!me.mail)) { me.calls = info.calls; me.mail = info.mail; await saveMe(); }
-    });
+    }).catch(() => {}).finally(liveLoop);
     // After an update from 0.5, sessions were renewed: tell each contact.
     for (const c of contacts.values()) if (c.needReset) {
       c.needReset = false; saveContact(c);
