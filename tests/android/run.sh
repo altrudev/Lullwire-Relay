@@ -26,6 +26,7 @@ for p in dev.altru.lullwire org.chromium.webview_shell; do
   "$ADB" "${S[@]}" shell pm clear $p >/dev/null
   "$ADB" "${S[@]}" shell pm grant $p android.permission.CAMERA
   "$ADB" "${S[@]}" shell pm grant $p android.permission.RECORD_AUDIO
+  [ $p = dev.altru.lullwire ] && { "$ADB" "${S[@]}" shell pm grant $p android.permission.POST_NOTIFICATIONS 2>/dev/null || true; }
 done
 "$ADB" "${S[@]}" shell am start --windowingMode 5 -n org.chromium.webview_shell/.WebViewBrowserActivity -d "http://localhost:$PORT/" >/dev/null
 sleep 3
@@ -33,4 +34,4 @@ sleep 3
 sleep 4
 "$ADB" "${S[@]}" forward tcp:9333 "localabstract:webview_devtools_remote_$("$ADB" "${S[@]}" shell pidof dev.altru.lullwire)" >/dev/null
 "$ADB" "${S[@]}" forward tcp:9334 "localabstract:webview_devtools_remote_$("$ADB" "${S[@]}" shell pidof org.chromium.webview_shell)" >/dev/null
-RELAY="http://localhost:$PORT/relay" node tests/android/device.js
+ADB="$ADB" SERIAL="$SERIAL" RELAY="http://localhost:$PORT/relay" node tests/android/device.js

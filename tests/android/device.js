@@ -39,7 +39,17 @@ const timer = `/^\\d+:\\d\\d$/.test(document.querySelector('#callState').textCon
   console.log('  audio and video both ways, nothing failed to decrypt:', ok);
   await A.click('#callEnd'); await B.waitFor(`document.querySelector('#vCall').hidden`, 15000);
   console.log('5 hang-up from the app reached the browser:', await B.ev(`return [...document.querySelectorAll('.m.sys')].map(e => e.textContent).pop()`));
+  // 6. Background mode (on by default in the app): pressed Home, the app keeps its connection,
+  // receives, and shows a notification without names.
+  const adb = (...a) => require('child_process').execFileSync(process.env.ADB, ['-s', process.env.SERIAL, ...a]).toString();
+  adb('shell', 'input', 'keyevent', 'HOME'); await sleep(4000);
+  await B.fill('#txt', 'Are you there?'); await B.ev(`document.querySelector('#composer').requestSubmit()`);
+  await A.waitFor(has('.m.in', 'Are you there'), 30000).catch(() => {});
+  const got = await A.ev(`return ${has('.m.in', 'Are you there')}`);
+  const notes = adb('shell', 'dumpsys', 'notification', '--noredact');
+  const bg = got && /Connected to your relay/.test(notes) && /New message/.test(notes);
+  console.log('6 app in the background received the message:', got, '| connection and message notifications:', bg);
   const errs = A.errors.map(e => 'app: ' + e).concat(B.errors.map(e => 'browser: ' + e)).filter(e => !/400 \(Bad Request\)/.test(e));
   console.log('errors:', errs.length ? errs : 'none');
-  process.exit(ok && !errs.length ? 0 : 1);
+  process.exit(ok && bg && !errs.length ? 0 : 1);
 })().catch(e => { console.log('FAILED', e.message); process.exit(1); });
