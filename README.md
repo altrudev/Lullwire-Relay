@@ -4,7 +4,7 @@
 
 **A small, self-hostable, end-to-end encrypted messenger with voice and video calls. No accounts, no phone numbers, no app store.**
 
-*Formerly Hush Relay. Version 0.6 renamed the project; it still talks to Hush Relay 0.5 apps.*
+*Version 0.6 renamed the project; it still talks to Hush Relay 0.5 apps.*
 
 [**Download**](https://github.com/altrudev/Lullwire-Relay/releases/latest) · [Install & use](#install) · [Host a relay](docs/SELF-HOSTING.md) · [Security](SECURITY.md) · [Protocol](docs/PROTOCOL.md)
 
