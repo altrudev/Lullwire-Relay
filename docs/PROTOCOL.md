@@ -1,41 +1,79 @@
-# Lullwire Relay protocol (v3)
+# Lullwire Relay protocol (v4)
 
-All cryptography uses the browser's WebCrypto API: ECDH P-256, HKDF-SHA-256, HMAC-SHA-256, AES-256-GCM and PBKDF2-SHA-256. Encodings are base64url without padding unless noted.
+All cryptography uses the browser's WebCrypto API: ECDH and ECDSA on P-256, HKDF-SHA-256, HMAC-SHA-256, AES-256-GCM and PBKDF2-SHA-256. Encodings are base64url without padding unless noted.
+
+Labels beginning with `hush/` or `hush-` are the historical names from Hush Relay 0.5 (this project's old name). They are part of the wire format that 0.5 apps speak, so they keep their spelling; everything introduced in 0.6 uses `lullwire/`.
 
 ## Identity and mailbox
 
-- **Identity key:** an ECDH P-256 key pair generated on the device. The public key (65-byte raw, base64url) is the identity.
-- **Mailbox:** `secret` = 32 random bytes as hex, and `box` = first 32 hex characters of `SHA-256(secret)`. Anyone may deliver to `box`; reading and deleting require `secret`, which is only ever sent in a POST body.
+- **Identity key:** a P-256 key pair generated on the device. The public key (65-byte raw) is the identity. The same key does ECDH (sessions, sealed envelopes) and ECDSA-SHA-256 signatures (prekeys and address cards), the way Signal's XEdDSA reuses its identity key. At runtime the app holds it only as two non-extractable WebCrypto keys; the private JWK lives in the encrypted vault (below).
+- **Mailbox:** `secret` = 32 random bytes as hex, and `box` = first 32 hex characters of `SHA-256(secret)`. Anyone may deliver to `box`; reading and deleting require `secret`, which is only ever sent in a POST body or over the live connection.
 - **Contact id:** the first 32 hex characters of `SHA-256(rawPub)`. A different key is a different contact.
-- **Safety number:** `SHA-256(pubA ‖ pubB)` with the two keys sorted. The first 40 hex characters are shown in groups of 5.
-- **Invite:** `https://<app>/#i=` followed by `base64url(JSON {p: pub, b: box, r: relayURL, n: name, k: inviteToken, j?: joinCode})`. It travels in the URL fragment, so it never reaches a server. `k` is 12 random bytes: someone who adds you from your invite sends `{t: "hello", k}`, and a matching token lets your app accept them as a contact instead of a request, for the first 25 people per token (`me.inviteTok` is replaced when you make a new link). `j` is your relay's join code when it is invite-only, so the person you invite can sign up there. Inside the Android app, `<app>` is the web copy of the app your relay serves (the relay URL without its last path segment).
+- **Safety number:** `SHA-256(pubA ‖ pubB)` with the two keys sorted. The first 40 hex characters are shown in groups of 5. Because the identity key signs everything else, comparing it once covers prekeys and address changes too.
+
+## Signed prekeys and address cards
+
+- **Signed prekey (SPK):** a P-256 ECDH key pair. A new one is made every 14 days; each is kept for 45 days and then deleted. Senders use a prekey only while its card is less than 28 days old (the remaining 17 days cover mail waiting on a relay for up to 14 days, plus clock skew).
+- **Card:** `q = {s: spkPub, t: spkCreatedMs, g: sig}`, where `sig = ECDSA(identity, "lullwire/v4/card|" + pub + "|" + box + "|" + relay + "|" + s + "|" + t)`. It binds the mailbox, the relay address and the prekey to the identity. Relay addresses may not contain `|`, so the encoding is unambiguous. A card is accepted only with a valid signature, a `t` no more than a day in the future, and a `t` newer than the card already held. A newer valid card moves a contact to the mailbox and relay it names.
+- Cards travel in invites and inside messages. A message carries the sender's card until the recipient confirms holding it: v4 messages include `qa`, the `t` of the recipient's card that the sender holds, and the recipient stops attaching its card once `qa` matches.
+- Cards are not stored in backups or recovery slots (size); contacts send theirs again after a restore.
+
+## Invite
+
+`https://<app>/#i=` followed by `base64url(JSON {p: pub, b: box, r: relayURL, n: name, k: inviteToken, q: card, j?: joinCode})`. It travels in the URL fragment, so it never reaches a server.
+
+- `q` signs `b` and `r`: a mailbox swapped in an intercepted invite fails the signature. For a contact you already have, a newer signed card moves them without a question; an invite without a valid card (from Hush Relay 0.5) still asks before re-routing anyone.
+- `k` is 12 random bytes. Someone who adds you from your invite sends `{t: "hello", k}`; a matching token makes them a contact instead of a request, for the first 25 people per token (`me.inviteTok` is replaced when you make a new link).
+- `j` is your relay's join code when it is invite-only, so the person you invite can sign up there.
+- Inside the Android app, `<app>` is the web copy of the app your relay serves (the relay URL without its last path segment).
 
 ## Envelope (what the relay stores)
 
 ```
 ephPub (65) | iv (12) | AES-GCM(K_outer, pad(JSON inner), AD = ephPub)
-K_outer = HKDF(ECDH(eph, recipientIdentity), salt = 0^32, info = "hush/v2/outer")
-inner   = { v: 2, f: senderPub, b: senderBox, r: senderRelay, n: senderName,
-            s: sessionId, h: {dh, pn, n}, c: ratchetCiphertext }
+K_outer = HKDF(ECDH(eph, recipientKey), salt = 0^32, info = "hush/v2/outer")
+inner   = { v: 4, f: senderPub, b: senderBox, r: senderRelay, n: senderName,
+            q?: senderCard, qa?: cardTimeOfRecipientHeld, s: sessionId, h: header, c: ratchetCiphertext }
 ```
 
-`pad` adds trailing spaces up to 1, 4, 16 or 32 KiB. A fresh ephemeral key per message hides the sender from the relay. The relay sees only the recipient's box, the time and the size bucket.
+- **recipientKey** is the recipient's newest prekey when the sender holds a fresh card for them, and otherwise their identity key. The recipient tries its prekeys (newest first), then its identity key. A stolen identity key alone therefore can't open recorded envelopes that were sealed to a prekey that has since been deleted.
+- **pad** adds trailing spaces (valid JSON) up to 1, 4, 16 or 32 KiB plus a random tail of up to an eighth of that size class; larger payloads (a profile being moved) go up in 16 KiB steps.
+- A fresh ephemeral key per message hides the sender from the relay. The relay sees only the recipient's box, the time and the size class.
 
-## Double Ratchet
+## Sessions and the Double Ratchet
 
-The construction follows Signal's Double Ratchet specification, without header encryption (the outer layer already hides headers from the relay).
+The Double Ratchet follows Signal's specification, without header encryption (the outer layer already hides headers from the relay). `sessionId` is 16 random bytes chosen by whoever starts the session.
 
-- **Session root:** `HKDF(ECDH(idSelf, idPeer), salt = sessionId, info = "hush/v2/root")`. `sessionId` is 16 random bytes chosen by whoever starts the session. Only the two identity holders can derive the root, which is what authenticates the sender.
-- **Initiator:** generates a ratchet key `DHs`, sets `DHr` to the peer's identity key, then runs `RK, CKs = KDF_RK(root, ECDH(DHs, peerId))`.
-- **Responder:** uses its identity key as its first `DHs` and creates the session when the first message for an unknown `sessionId` arrives.
-- **KDF_RK:** `HKDF(dhOut, salt = RK, info = "hush/v2/rk")` produces 64 bytes, giving the new `RK` and a chain key.
-- **KDF_CK:** `next = HMAC(CK, 0x02)` and `mk = HMAC(CK, 0x01)`.
-- **Message encryption:** AES-GCM with `mk`, a random 12-byte IV, and `AD = senderPub "|" recipientPub ‖ JSON(header)`.
-- **Out-of-order messages:** up to 200 skipped keys per step, 500 stored in total.
-- **Failure handling:** decryption runs on a copy of the state, and the state is saved only if it succeeds.
-- **Several sessions per contact:** sessions are keyed by `sessionId`. Receiving on a session makes it the active one, and the 4 most recent are kept, so two people starting at the same time converge.
+**Opening (v4, X3DH-style, no one-time prekeys).** Alice knows Bob's card:
 
-Message bodies are JSON: `{t: "msg", id, txt, ts}`, `{t: "reset", id, ts}`, `{t: "hello", k, ts}` or a call message (below). A reset is sent after an account moves to a new device, because ratchet state never travels.
+```
+SK = HKDF(DH(IKa, SPKb) ‖ DH(EKa, IKb) ‖ DH(EKa, SPKb), salt = sessionId, info = "lullwire/v4/x3dh")
+Alice: DHs = new key, DHr = SPKb, (RK, CKs) = KDF_RK(SK, DH(DHs, SPKb))
+Bob:   DHs = SPKb, DHr = none, RK = SK; the first message then performs a DH ratchet step
+```
+
+Until Bob answers, Alice's headers also carry `e = EKa` and `sp = SPKb`, so Bob can build the session from any of her opening messages, whichever arrives first. Only the two identity holders can derive `SK`, which authenticates both sides. After Bob deletes `SPKb`, a stolen identity key can't read recorded opening messages.
+
+**Opening (v2, legacy).** For a contact whose card is unknown or too old: `RK = HKDF(ECDH(IKa, IKb), salt = sessionId, info = "hush/v2/root")`, Alice's `DHr` is Bob's identity key, and Bob uses his identity key as his first `DHs`. Hush Relay 0.5 apps only speak this.
+
+**Chains.** `KDF_RK(rk, dh) = HKDF(dh, salt = rk, info = "hush/v2/rk")` → 64 bytes (new root key and chain key). `KDF_CK: next = HMAC(CK, 0x02), mk = HMAC(CK, 0x01)`.
+
+**Message encryption.** AES-GCM with `mk`, a random 12-byte IV, and
+
+```
+AD = senderPub "|" recipientPub ‖ "|" JSON([b, r, n, q ? [q.s, q.t, q.g] : null, qa ?? null]) ‖ JSON(header)     (v4)
+AD = senderPub "|" recipientPub ‖ JSON(header)                                                           (v2)
+header = {dh, pn, n} or, on opening messages, {dh, pn, n, e, sp}
+```
+
+In v4 every field of the inner envelope is authenticated by the ratchet, so even someone who could open the outer layer can't change the sender's mailbox, relay, name or card. An app sends `v: 4` to contacts whose card it holds and `v: 2` otherwise (with its own card attached, which 0.5 apps ignore and 0.6 apps verify by its signature).
+
+**Other rules.**
+- Out-of-order messages: up to 200 skipped keys per step, 500 stored in total.
+- Decryption runs on a copy of the state, which is saved only if it succeeds.
+- Sessions are keyed by `sessionId`. Receiving on a session makes it the active one, and the 4 most recent are kept, so two people starting at the same time converge. A session id is only ever opened once (the last 300 are remembered), and opening messages older than the moment this copy of the profile was created are refused, so a relay can't replay old sessions.
+
+Message bodies are JSON with an authenticated timestamp: `{t: "msg", id, txt, ts}`, `{t: "reset", id, ts, why?}`, `{t: "hello", k, ts}` or a call message (below). A reset is sent after a profile moves to a new device (ratchet state never travels) and, with `why: "upgrade"`, once after updating from Hush Relay 0.5 (whose ratchet keys can't be exported into the new encrypted storage).
 
 ## Relay API (all POST, at `/relay.php`; the Go relay also answers at `/relay`)
 
@@ -47,20 +85,37 @@ Message bodies are JSON: `{t: "msg", id, txt, ts}`, `{t: "reset", id, ts}`, `{t:
 | `?a=rput` | `{"l": 32hex, "t": 64hex, "d": b64url}` | stores a recovery slot; an existing slot needs the same `t` |
 | `?a=rget` | `{"l"}` | `{d}` or 404 |
 | `?a=rdel` | `{"l", "t"}` | deletes a slot |
-| `?a=info` | `{}` | `{v: 2, invite: bool, calls: bool}` (Go relay; the PHP relay answers 400, which the app reads as "open, no calls") |
+| `?a=info` | `{}` | `{v: 2, invite: bool, calls: bool, mail: bool}` (Go relay; the PHP relay answers 400, which the app reads as "open, no calls, no live connection") |
 | `?a=join` | `{"s": secret, "code"}` | registers `box(s)` as a member of an invite-only relay; 403 for a wrong code |
 
-**Invite-only relays** (Go relay with `-join-code`) keep a list of member mailboxes. `put` to a non-member box answers 404 `unknown box`, so strangers can't use the relay as a free mailbox; `rput` needs the `s` of a member. `get` and `ack` for a non-member answer like an empty mailbox. The relay stores `SHA-256("lullwire-join|" + code)`, never the code. `join` is limited to 10 tries per client per hour and 60 per minute overall.
+**Invite-only relays** (Go relay with `-join-code`) keep a list of member mailboxes. `put` to a non-member box answers 404 `unknown box`, so strangers can't use the relay as a free mailbox; `rput` needs the `s` of a member. `get` and `ack` for a non-member answer like an empty mailbox. The relay keeps `SHA-256("lullwire-join|" + code)` in memory, never the code. Wrong codes are limited to 10 per client per hour and 60 per minute overall; the right code is always accepted.
 
 **Private path** (Go relay with `-path /<secret>/`): everything above, the app and `/live` move under that prefix, and `/` shows a plain placeholder page. It keeps scanners and casual visitors from recognising the server; it is not access control (the join code is).
 
 Undelivered mail expires after 14 days. The relay keeps `sha256(t)`, never `t`.
 
+## Live connection (Go relay)
+
+The app keeps one WebSocket open at `/live` (the relay URL with its last path segment replaced, `https` → `wss`). To a network observer it is one long-lived HTTPS connection to your server. The first text frame, within 10 seconds, is `{"op":"mail","s":secret,"cover":bool}`; the relay answers `{"op":"ready","mail":true}`. Then:
+
+| Direction | Frame | Meaning |
+|---|---|---|
+| relay → app | text `{"op":"m","id","d"}` | a pending or newly arrived envelope (base64) |
+| app → relay | text `{"op":"ack","ids":[...]}` | delete delivered mail |
+| app → relay | binary `0x01 ‖ requestId (4, BE) ‖ box (16) ‖ envelope` | deliver to a mailbox on this relay |
+| relay → app | text `{"op":"put","r":requestId,"ok":true}` or `{…,"e":status}` | result, with HTTP-like status codes (404, 413, 429, 507) |
+| app → relay | binary `0x00 ‖ anything` | cover traffic, dropped |
+| relay → app | text `{"op":"n","p":random}` | cover traffic (when `cover` was true) |
+
+Deliveries over the connection pass exactly the checks an HTTP `put` does. An envelope is pushed once per connection; anything unacknowledged is pushed again on the next one. At most about 2 MiB is in flight unacknowledged. A mail connection counts like a long-poll towards the per-client limit (6, or 2 per mailbox behind Tor). The relay pings at varying intervals (20 s ± 25%); 60 seconds without data or an answered ping ends the connection.
+
+With cover traffic on, both sides send a noise frame shaped like a 1 KiB message at random intervals of 20–90 seconds (about 1 MB an hour), so someone watching the network can't tell real sends and deliveries from noise. Without the live connection (PHP relay, or a proxy that doesn't pass WebSockets), the app long-polls with randomised waits (14–20 s) and gaps.
+
 ## Calls
 
-Calls are one-to-one, audio or video, and travel through the caller's relay over a WebSocket at `/live` (the relay URL with its last path segment replaced, `https` → `wss`). To a network observer this is an ordinary long-lived HTTPS connection to your server. The relay forwards opaque binary frames between the two people in a room and can't decrypt them. There is no peer-to-peer connection, so neither side learns the other's IP address.
+Calls are one-to-one, audio or video, and travel through the caller's relay over a WebSocket at `/live`. The relay forwards opaque binary frames between the two people in a room and can't decrypt them. There is no peer-to-peer connection, so neither side learns the other's IP address.
 
-**Setting up.** The caller picks `room` (32 random bytes, hex), `key` (32 random bytes) and a call id, opens the room, and only then sends through the ratchet: `{t: "call", id, room, key, live, video, ts}`. The callee joins only if `live` is on the same host as the caller's relay, `room` is 64 hex characters and the message is under a minute old. Either side can send `{t: "call-decline", id, busy?}` or `{t: "call-end", id}`.
+**Setting up.** The caller picks `room` (32 random bytes, hex), `key` (32 random bytes) and a call id, opens the room, and only then sends through the ratchet: `{t: "call", id, room, key, live, video, ts}`. The callee joins only if the caller is an accepted contact, `live` is exactly the caller's relay's call address, `room` is 64 hex characters and the message is under a minute old. Either side can send `{t: "call-decline", id, busy?}` or `{t: "call-end", id}`.
 
 **Room protocol.** The first text frame, within 10 seconds, is `{"op":"open","room","s"}` (caller; `s` must be a member's secret on an invite-only relay) or `{"op":"join","room"}`. The relay answers `{"op":"ready","peer":bool}` and later `{"op":"peer","here":bool}`; after that only binary frames are forwarded. Limits: 2 people per room, 500 rooms, 4 rooms per client, 256 KiB per frame, about 600 KB/s per connection (2 MB burst), rooms close after 4 hours or 2 minutes alone, 60 seconds of silence ends a connection.
 
@@ -76,19 +131,38 @@ type   = 1 audio (Opus, 48 kHz mono, 32 kbit/s, 20 ms) · 2 video (VP8, 640×360
 
 ## Recovery words
 
-- **The words:** 6 random words from the BIP39 English list, which is 66 bits.
-- **Key derivation:** `PBKDF2(words, salt = "hush/recovery/v1", 600 000 iterations)` produces 80 bytes, split into the locator `l` (16 bytes, hex), the write token `t` (32 bytes, hex) and the key `k` (32 bytes).
-- **The slot:** it holds `AES-GCM(k, JSON account, AD = "hush-recovery:" + l)`, re-uploaded whenever the contact list changes.
-- **The account bundle:** `{v: 3, me: {jwk, pub, secret, box, name, relay, rec, join?, inviteTok}, contacts: [{pub, box, relay, name, verified, blocked}]}`. When importing, the device checks that the private key actually matches `pub`.
+- **The words:** 8 random words from the BIP39 English list (88 bits). Sets of 6 words (66 bits) made by Hush Relay 0.5 still work; Settings offers to replace them, and the old slot is deleted once the new words are confirmed.
+- **Key derivation:** `PBKDF2(words, salt, 600 000 iterations)` produces 80 bytes, split into the locator `l` (16 bytes, hex), the write token `t` (32 bytes, hex) and the key `k` (32 bytes). The salt is `"lullwire/recovery/v2"` for 8 words and `"hush/recovery/v1"` for 6.
+- **The slot:** `AES-GCM(k, JSON account padded to a multiple of 16 KiB, AD = "lullwire/recovery:" + l)` (6-word slots: `AD = "hush-recovery:" + l`), re-uploaded whenever the contact list changes.
+- The salt is the same for everyone, so a relay holding many slots can test a guess against all of them at once; with 88 bits and 600 000 PBKDF2 rounds per guess that is still far out of reach.
+- **The account bundle:** `{v: 3, me: {jwk, pub, secret, box, name, relay, rec, join?, inviteTok}, contacts: [{pub, box, relay, name, verified, blocked}]}`. When importing, the device checks that the private key matches `pub` and the mailbox matches its secret, and makes a fresh prekey.
 
 ## Moving to a new device
 
-1. The new device creates an ephemeral key pair `E` and a temporary mailbox `(s, b = box(s))`. It shows `https://<app>/#link=` followed by `base64url({r, e: E.pub, s})` as a QR code (`b` is derived from `s`). On an invite-only relay the old device uses its join code to admit the temporary mailboxes before delivering. It also shows the 12-digit code `SHA-256(E.pub)[0..16 hex] mod 10^12`.
-2. The old device scans the QR, shows the same code, and waits for the user to approve.
+1. The new device creates an ephemeral key pair `E` and a temporary mailbox `(s, b = box(s))`. It shows `https://<app>/#link=` followed by `base64url({r, e: E.pub, s})` as a QR code. It also shows the 12-digit code `SHA-256(E.pub)[0..16 hex] mod 10^12`.
+2. The old device scans the QR (move codes are accepted only from Scan, never from links or pasted text), shows the same code, and waits for the user to approve. On an invite-only relay it uses its join code (only with its own relay) to admit the temporary mailboxes.
 3. The old device seals `{t: "link", data: accountBundle, ack: {r, b: ackBox, n: nonce}}` (`nonce` = 32 random bytes, hex) to `E.pub` with the envelope's outer layer, delivers it, and waits up to 2 minutes for a message in `ackBox` that starts with `nonce`.
-4. The new device opens the bundle, imports it, sends the acknowledgement (`nonce` followed by 64 random bytes; the relay never sees `nonce` in the clear, so it can't fake this), and sends `reset` to every contact.
+4. The new device opens the bundle, asks the user to confirm which profile it is receiving, imports it, sends the acknowledgement (`nonce` followed by 64 random bytes; the relay never sees `nonce` in the clear, so it can't fake this), and sends `reset` to every contact.
 5. The old device erases itself only after the acknowledgement arrives.
 
 ## Encrypted backup file
 
-`HUSH3.` + `b64url(salt)` + `.` + `b64url(AES-GCM(PBKDF2(passphrase, salt, 600 000), bundle, AD = "hush-backup"))`
+`LULLWIRE1.` + `b64url(salt)` + `.` + `b64url(AES-GCM(PBKDF2(passphrase, salt, 600 000), bundle, AD = "lullwire/backup"))`, saved as `.lullwire`. Files from Hush Relay 0.5 (`HUSH3.` / `HUSH2.`, `AD = "hush-backup"`, `.hush`) still restore.
+
+## Storage on the device (the vault)
+
+Everything the app stores is in IndexedDB database `lullwire`, encrypted:
+
+- A random 32-byte master secret `MK` gives `K_enc = HKDF(MK, info = "lullwire/vault/v1/enc")` (AES-256-GCM) and `K_blind = HKDF(MK, info = "lullwire/vault/v1/blind")` (HMAC-SHA-256).
+- Each record is `AES-GCM(K_enc, JSON, AD = "lullwire/vault|" + store + "|" + key)`, so records can't be swapped between places. The identity key, the profile, prekeys, contacts (with their ratchet state) and every message are records.
+- Contacts and messages are indexed by `HMAC(K_blind, contactId)[0..32 hex]`, so the database reveals neither contact ids nor which messages belong to whom.
+- The only clear record is the vault header, saying how `MK` is protected: by the Android Keystore (`mode: "android"`, an AES-GCM key in the phone's keystore that can't be exported), by an app-lock passphrase (`mode: "pass"`, `AES-GCM(PBKDF2(passphrase, salt, 600 000), MK, AD = "lullwire/vault/pass")`), or stored as-is in a plain browser (`mode: "plain"`, where the browser has no safer place for it).
+- On first start after updating from Hush Relay 0.5, the plaintext database `hush2` is moved into the vault and deleted.
+
+## Signed releases (web app)
+
+`web/release.json = {m: manifest JSON, s: ECDSA-P256-SHA256(releaseKey, m)}`, where the manifest is `{v: 1, version, key, files: {path: sha256hex}}` and lists every app file except `sw.js`. The release key's public half is pinned in `sw.js`. With a key pinned, the service worker serves the app only from a cache whose every file matched a signed manifest, and switches to a new release only if it is signed by the pinned key, complete, and has a higher version; it reports anything else to the page. See [RELEASING.md](RELEASING.md).
+
+## Legacy and removal plan
+
+Code paths marked `LEGACY` in the source exist only to talk to, or import from, Hush Relay 0.5: v2 session openings and envelopes, 6-word recovery, `HUSH2`/`HUSH3` backups, the `hush2` database migration, `HUSH_*` settings and `HUSH_CONFIG`. They are planned for removal in 0.8, once 0.5 apps are no longer in use; `tests/compat.test.js` checks them against a frozen copy of the 0.5 crypto core until then.

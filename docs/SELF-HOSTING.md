@@ -1,13 +1,15 @@
 # Self-hosting Lullwire Relay
 
-There are two interchangeable relays. Both speak the same API and use the same data folder layout, so you can switch between them without losing mail.
+There are two relays. The **Go relay** is the main one and gets every new feature. The **PHP relay** is a "lite" version for shared hosting: messages and recovery only, kept working and secure but with no new features. Both use the same API and data folder layout, so you can switch from PHP to Go without losing mail.
 
-| | Go relay (`lullwire-relay`) | PHP relay (`web/relay.php`) |
+| | Go relay (`lullwire-relay`) | PHP relay (`web/relay.php`, lite) |
 |---|---|---|
 | Install | One file, nothing else | PHP 7.4+ and a web server |
 | App included | Yes, built in | Upload `web/` alongside it |
-| Live connections | Thousands (tested: 3,000 at about 80 MB) | One PHP worker each (32 by default) |
-| Best for | Phones, Pis, VPS, Tor onion services | Shared hosting (cPanel) |
+| Delivery | One live WebSocket per person; thousands at once (3,000 long-polls tested at about 80 MB) | Long-polling, one PHP worker each (32 by default) |
+| Calls, private path, invite-only, cover traffic | Yes | No |
+| Setup wizard | `lullwire-relay init` | No |
+| Best for | Phones, Pis, VPS, Tor onion services | Shared hosting (cPanel) where nothing else runs |
 
 Every option ends the same way: a stable `https://` (or `.onion`) address serving the app, with the relay writing to a private data folder.
 
@@ -21,6 +23,18 @@ go build -trimpath -ldflags "-s -w" -o lullwire-relay ./cmd/lullwire-relay
 ./lullwire-relay                      # http://127.0.0.1:8080, data in ~/.lullwire-relay-data
 ```
 
+### Setup wizard
+
+```bash
+./lullwire-relay init
+```
+
+It asks how people will reach the relay (your domain behind Caddy or nginx, Cloudflare Tunnel, a Tor onion service, or just testing), where to keep data, which port to use and whether to make it private (recommended). It writes a settings file (`~/.config/lullwire-relay/relay.conf`, mode 0600) and prints exactly what to do next: the Caddy or nginx block (with the WebSocket lines), the `cloudflared` commands or `torrc` lines, a hardened systemd unit, and the address to open. After that, `./lullwire-relay` on its own picks the settings up.
+
+The settings file is plain `name = value` lines using the flag names below (`addr`, `data`, `path`, `join-code`, `onion`, `forwarded-header`, `trusted-proxies`, `cover`, `web`). Priority: command-line flags, then `LULLWIRE_*` environment variables, then the settings file, then defaults. Use `-config /path/relay.conf` (or `LULLWIRE_CONFIG`) for a file elsewhere.
+
+**Coming from Hush Relay?** The `HUSH_*` environment variables, an existing `~/.hush-relay-data` folder and a PHP `relay.config.php` that defines `HUSH_DATA` all keep working.
+
 | Flag | Environment | Default | Meaning |
 |---|---|---|---|
 | `-addr` | `LULLWIRE_ADDR` | `127.0.0.1:8080` | Listen address. Keep it on 127.0.0.1 behind a proxy, tunnel or onion service. |
@@ -33,6 +47,7 @@ go build -trimpath -ldflags "-s -w" -o lullwire-relay ./cmd/lullwire-relay
 | `-cover` | `LULLWIRE_COVER` | built in | Your own HTML file for that front page. |
 | `-join-code` | `LULLWIRE_JOIN_CODE` | none | Invite-only mode: only people with the code can get mail on this relay. It travels inside your invites. |
 | `-new-path` | | | Print a random `-path` and `-join-code` to use, then exit. |
+| `-config` | `LULLWIRE_CONFIG` | `~/.config/lullwire-relay/relay.conf` | Settings file (written by `init`). |
 
 It answers at `/relay.php` (so invites made for the PHP relay keep working) and at `/relay`. It refuses to start if the data folder is inside a served folder.
 
@@ -110,7 +125,7 @@ People you invite can use the web app in any browser, or install the **Lullwire 
 2. Open it on the phone and allow installing from that source when Android asks.
 3. On the welcome screen, paste the invite link someone sent you (or share the link to the Lullwire Relay app from your messenger), then create your profile.
 
-The app is the same code as the web app, bundled inside the APK so nothing is downloaded to run it; it only connects to the relays you use. It blocks screenshots and hides chats from the recent-apps preview, keeps your keys in app storage that other apps can't read, and excludes them from Android cloud backups. Like the web app, it receives messages while it's open; there are no push notifications yet.
+The app is the same code as the web app, bundled inside the APK so nothing is downloaded to run it; it only connects to the relays you use. It blocks screenshots and hides chats from the recent-apps preview, keeps everything encrypted in app storage with its key in the Android Keystore, and excludes it from cloud backups and phone-to-phone transfer. With **Stay connected in the background** (on by default, in Settings) it keeps one connection to your relay open while closed, so messages and calls arrive with a notification; Android shows a small "connected" notification while it does. No Google services or push servers are involved.
 
 **Building it yourself** (no Gradle; the plain Android SDK tools):
 

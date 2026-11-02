@@ -2,7 +2,7 @@
 
 ## Status
 
-Lullwire Relay is **experimental and has not been audited by an independent security firm.** Each release has had internal adversarial review with working exploit scripts, and every confirmed finding was fixed with a regression test before release (see the audit log below). That is not a substitute for review by outside cryptographers.
+Lullwire Relay (named Hush Relay until 0.5) is **experimental and has not been audited by an independent security firm.** Each release has had internal adversarial review with working exploit scripts, and every confirmed finding was fixed with a regression test before release (see the audit log below). That is not a substitute for review by outside cryptographers.
 
 Use it for everyday privacy, learning and experiments. If a bug could put you or the people you talk to at risk (activists, journalists, sources, people facing a hostile government), use [Signal](https://signal.org) or [SimpleX](https://simplex.chat).
 
@@ -14,52 +14,61 @@ Please report privately through GitHub's **Report a vulnerability** button (the 
 
 | Threat | Protection |
 |---|---|
-| Relay operator reading messages | End-to-end encryption (Double Ratchet, AES-256-GCM) |
+| Relay operator reading messages | End-to-end encryption (signed-prekey session opening, Double Ratchet, AES-256-GCM) |
 | Relay operator learning who sent a message | Sealed sender: a fresh ephemeral key per envelope |
-| Relay operator learning exact message length | Padding to 1, 4, 16 or 32 KiB |
-| Someone who later steals a device reading past captured traffic | Forward secrecy for message bodies (see limit 1) |
-| Forged or tampered messages | Authenticated encryption bound to both identities and the header |
+| Relay operator or network learning exact message length | Padding to size classes with a random tail; large payloads in 16 KiB steps |
+| Someone who later steals a device reading past captured traffic | Forward secrecy for message bodies, including a session's first messages once the signed prekey is deleted (see limit 1) |
+| Forged or tampered messages | Authenticated encryption bound to both identities, the header, and (v4) the sender's mailbox, relay, name and card |
 | Replayed messages or replayed old sessions | Ratchet counters, single-use session ids, authenticated timestamps |
-| Relay operator opening or replacing the recovery backup | 66-bit random words, PBKDF2 600k, token-guarded slot |
+| Someone swapping the mailbox in an invite, or quietly re-routing a contact | Address cards signed by the identity key; unsigned changes always ask first |
+| Someone who copies the device's files | Everything stored encrypted (the vault); key in the Android Keystore, or behind an app-lock passphrase |
+| Code that leaks keys through an export call | Identity keys held as non-extractable WebCrypto keys at runtime |
+| A server changing the app's code | Installed web apps run only releases signed with the pinned release key (see limit 4); the APK is signed |
+| A network observer timing your messages | One long-lived connection for everything; optional cover traffic both ways |
+| Relay operator opening or replacing the recovery backup | 88-bit random words, PBKDF2 600k, token-guarded slot |
 | Unsolicited senders posing as your contacts | Unknown senders arrive as *requests*, marked unverified; safety numbers |
 | Relay operator or network listening to calls | Per-call random key sent inside the ratchet; one AES-GCM key per direction; frames bound to type and sequence number |
 | Replayed or reordered call frames | Strictly increasing per-direction sequence numbers, checked inside the authenticated data |
-| A contact or relay steering your app into a call elsewhere | Calls are joined only on the caller's own relay host |
+| A contact or relay steering your app into a call elsewhere | Calls are joined only from accepted contacts, at exactly their relay's call address |
 | Strangers using your relay as free storage | Invite-only mode (join code); only member mailboxes can receive mail or store recovery slots |
 | Scanners recognising the server as a messenger | Private path with a plain front page; calls and messages are ordinary HTTPS to your server |
-| Other Android apps reading your keys | App-private storage, no cloud backup, screenshots blocked in release builds |
-| Abuse of a public relay | Per-client rate limits (real client address, also behind a proxy or tunnel), per-mailbox quotas, disk floor, expiry |
+| Other Android apps reading your keys | App-private storage, Keystore-wrapped vault, no cloud backup or device transfer, screenshots blocked in release builds |
+| Abuse of a public relay | Per-client rate limits (real client address, also behind a proxy or tunnel), per-mailbox quotas, disk floor, expiry; the live connection shares every limit |
 
 ## Known limits (by design, for now)
 
-1. **No prekeys.** Until a contact replies, the first messages of a session depend on both identity keys. Someone who records traffic and later steals an identity key can read those first messages and learn the sender of any recorded envelope. Ongoing conversations have forward secrecy.
+1. **No one-time prekeys.** A session's first messages get forward secrecy once the signed prekey they used is deleted (prekeys are replaced every 14 days and kept 45). Until then, someone who records traffic and later steals the device can read those first messages. Sessions with contacts still on Hush Relay 0.5, or whose prekey we hold is too old, open the older way, which depends on identity keys alone. Ongoing conversations always have forward secrecy.
 2. **Key-compromise impersonation.** Someone who steals your identity key can pose as anyone *to you*.
-3. **The relay sees metadata:** IP addresses, timing, which mailbox receives mail, the size bucket, and whether mail is waiting. Use a relay you trust, Tor, or a tunnel that hides client IPs if this matters.
-4. **Web delivery.** Whoever serves the app's files can serve modified code. Pin an IPFS CID, self-host the app, or check `app.js` against a tagged release.
+3. **The relay sees metadata:** IP addresses, timing, which mailbox receives mail, the size class, and whether mail is waiting. Cover traffic hides timing from the network, not from the relay, and doesn't hide that you use Lullwire or are online. Use a relay you trust, Tor, or a tunnel that hides client IPs if this matters.
+4. **Web delivery.** On a first visit, the browser trusts whatever code the server sends. After that, an installed web app runs only releases signed with the pinned key, but browsers always let a server replace the service worker (`sw.js`) itself, so a fully compromised server can still ship new code. The Android app, or a pinned IPFS CID, avoids this. Whoever holds the release signing key can sign anything; it is kept offline.
 5. **Shared origins.** Browser storage is per origin. Don't host the app on an origin that also runs other people's code (for example, a shared cPanel domain with other apps).
 6. **Device linking** uses a 12-digit comparison code (about 40 bits) inside a 10-minute window. Compare the code; never approve a request you didn't start.
-7. **Invites are not signed.** If someone intercepts your invite, they can swap the mailbox in it, though not the key. Verify safety numbers once.
+7. **Invites from Hush Relay 0.5 are not signed.** Someone who intercepts one can swap the mailbox in it (not the key). Invites made by Lullwire carry a signed card. Verify safety numbers once either way.
 8. **Calls go through the caller's relay.** It can see that a call happened, when, for how long and roughly how much data it used. It can't see or hear the call. It does learn the caller's mailbox (the caller proves membership when opening the room), and when the callee uses the same relay it can usually link the two by timing. There is no peer-to-peer mode, so neither side learns the other's IP address.
 9. **The private path is not a secret from the relay host or your network provider's view of your server.** HTTPS hides the path and content, but not the server's address or name. The join code, not the path, is what keeps strangers out.
-10. **Android app updates are your responsibility.** There's no store to update it: check the APK's SHA-256 and signing-certificate fingerprint against the release page, and keep Android System WebView updated, since the app runs on it.
+10. **Android app updates are your responsibility.** There's no store to update it: check the APK's SHA-256 and signing-certificate fingerprint against the release page, and keep Android System WebView updated, since the app runs on it. Lullwire's package (`dev.altru.lullwire`) is new: it installs next to Hush Relay, and you move your profile across with **From my other device**.
 11. **One device per account.** Recovering or linking while another copy is still active leads to lost messages. Erase the old copy.
-12. **Some sizes aren't hidden.** Messages are padded up to 32 KiB, but larger payloads (a profile being moved) and recovery slots travel at their real size, which hints at how many contacts you have.
-13. **Recovery words share one salt.** The 6 words carry 66 bits and PBKDF2 runs 600,000 rounds, but the salt is the same for everyone, so a relay holding many recovery slots can test each guess against all of them at once. Fixing this needs a new recovery format.
-14. **Sender details are protected by the outer layer only.** The sender's mailbox, relay and name inside an envelope are encrypted to you but not bound into the ratchet's authentication. This is safe while the outer layer stays confidential; a future protocol version should bind them.
+12. **Some sizes are only roughly hidden.** Messages are padded to size classes; recovery slots and moved profiles go up in 16 KiB steps, which still hints at the size of your contact list.
+13. **6-word recovery sets are weaker.** Words made before 0.6 carry 66 bits and share one salt, so a relay holding many slots can test a guess against all of them at once. New sets have 8 words (88 bits); Settings offers to replace old ones.
+14. **Messages with Hush Relay 0.5 contacts** use the v2 format, where the sender's mailbox, relay and name are protected by the outer layer only, not bound into the ratchet. v4 binds them.
 15. **Invite links can be forwarded.** Anyone holding your link can add you and, on an invite-only relay, join it. The first 25 people are added as contacts; later ones arrive as requests. Make a new link from the invite screen if one spreads too far.
-16. **No independent cryptographic review yet.**
+16. **One key, two uses.** The identity key does both ECDH and ECDSA (signing prekeys and cards), as Signal's XEdDSA does with its identity key. This relies on the joint security of the two schemes on one key, which is studied and believed sound but is an assumption.
+17. **Storage in a plain browser.** Without an app lock, a browser keeps the vault key next to the data (browsers have no safer place), so someone who copies the browser profile can read it. Turn on the app lock, or use the Android app. An app-lock passphrase can be guessed offline from copied files (PBKDF2, 600 000 rounds per guess), so choose a long one.
+18. **Background mode on Android** keeps the app running while closed and shows a "connected" notification. With an app lock on, nothing is received after a restart until you unlock. Message notifications show no names or text unless you turn names on.
+19. **No independent cryptographic review yet.**
 
 ## Deployment checklist
 
 - Serve over HTTPS. Browsers refuse the crypto APIs otherwise.
+- Start with `lullwire-relay init`: it sets up the private path, join code and the right proxy or Tor settings, and prints a hardened systemd unit.
 - Keep `LULLWIRE_DATA` outside the web root unless you're on Apache with `.htaccess` enabled (`AllowOverride`); the relay can't detect an Apache that ignores `.htaccess`. Elsewhere, the relay refuses to start when the data folder is inside the web root.
 - Behind a proxy on another machine, list it in `LULLWIRE_TRUSTED_PROXIES` so limits apply per real client. Local proxies and tunnels are trusted automatically.
+- Make sure the proxy passes WebSocket upgrades to `…/live`: calls and the live mail connection use it (Caddy and Cloudflare Tunnel do by default; nginx needs `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`). Without it, the app falls back to long-polling and calls don't work.
 - Keep anti-framing headers on: `web/.htaccess` (Apache) and `scripts/router.php` (`php -S`) send them. On Caddy or nginx, add `Content-Security-Policy: frame-ancestors 'none'`.
 - Turn off access logs you don't need.
 - Behind a Tor onion service, run the Go relay with `-onion`; otherwise every visitor shares one client identity for rate limits. Back up the onion service's key folder and keep it private.
-- Use the private setup: `-path` and `-join-code` (`lullwire-relay -new-path` prints a pair). Share the app only through invites.
-- If a proxy sits in front, make sure it passes WebSocket upgrades to `…/live` (Caddy and Cloudflare Tunnel do by default; nginx needs `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`).
-- Android release builds: keep the signing key (`~/.lullwire-relay/release.jks`) offline and backed up, and publish the APK's SHA-256 and certificate fingerprint with each release.
+- Use the private setup: `-path` and `-join-code`. Share the app only through invites.
+- Maintainers: keep the web release signing key (`~/.lullwire-relay/web-signing.pem`) and the Android signing key (`~/.lullwire-relay/release.jks`) offline and backed up; publish the APK's SHA-256 and certificate fingerprint and the release key fingerprint with each release ([RELEASING.md](docs/RELEASING.md)).
 - Keep the host patched. For a phone relay, use a device that still gets security updates.
 
 ## Audit log

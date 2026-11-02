@@ -4,12 +4,14 @@
 
 **A small, self-hostable, end-to-end encrypted messenger with voice and video calls. No accounts, no phone numbers, no app store.**
 
+*Formerly Hush Relay. Version 0.6 renamed the project; it still talks to Hush Relay 0.5 apps.*
+
 [**Download**](https://github.com/altrudev/Lullwire-Relay/releases/latest) · [Install & use](#install) · [Host a relay](docs/SELF-HOSTING.md) · [Security](SECURITY.md) · [Protocol](docs/PROTOCOL.md)
 
 Lullwire Relay is two pieces:
 
 - **The app** is a web page (a PWA) made of plain HTML and JavaScript. You open it in a browser and can install it to your home screen, or install the **Android app**, which bundles the same code. All encryption happens there.
-- **The relay** is a dumb mailbox. It stores encrypted envelopes until the recipient picks them up, and it can't read them or see who sent them. It comes in two interchangeable versions: a **single Go binary** with the app built in (standard library only, no dependencies) and **one PHP file** for shared hosting.
+- **The relay** is a dumb mailbox. It stores encrypted envelopes until the recipient picks them up, and it can't read them or see who sent them. The main relay is a **single Go binary** with the app built in (standard library only, no dependencies); a **one-file PHP relay** (messages only) remains for shared hosting.
 
 You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi or ordinary shared hosting. With a **private path and a join code** it looks like an ordinary website to everyone except the people you invite, and messages and calls travel as normal HTTPS traffic to your own server. A **Tor onion service** is optional, never required. You can also publish the app on IPFS.
 
@@ -17,16 +19,20 @@ You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi o
 
 ## Features
 
-- **End-to-end encryption with forward secrecy:** a Double Ratchet, so a stolen device can't decrypt messages captured earlier.
-- **A sealed sender:** the relay can't tell who sent a message. Messages are padded to fixed sizes, so the relay learns only a coarse length.
+- **End-to-end encryption with forward secrecy from the first message:** conversations open against a signed prekey (X3DH-style) and then run a Double Ratchet, so a stolen device can't decrypt messages captured earlier.
+- **A sealed sender:** the relay can't tell who sent a message. Messages are padded to size classes with a random tail, so the relay learns only a coarse length.
+- **Signed addresses:** invites and messages carry a card signed by your identity key, so nobody can swap your mailbox in an intercepted invite, and contacts follow you safely if your address changes.
+- **Encrypted on the device:** messages, contacts and keys are stored encrypted. On Android the key sits in the phone's secure Keystore; anywhere, an optional **app lock** passphrase protects them.
 - **Voice and video calls:** encrypted end to end with a fresh key per call, carried over your relay's HTTPS connection. No peer-to-peer link, so neither side sees the other's IP address.
 - **Private relay:** a hidden path with a plain front page, and invite-only mode so strangers can't use your server. Invite links carry the join code, so friends just tap and start.
 - **Android app:** a small APK (no app store, no Google services) built with the plain SDK tools; it blocks screenshots and keeps keys out of cloud backups.
-- **Live delivery:** messages arrive in under a second while the app is open, and wait up to 14 days on the relay while you're offline.
+- **Live delivery over one connection:** a single long-lived HTTPS (WebSocket) connection to your relay carries messages in both directions, like any mainstream chat app. Optional **cover traffic** hides when you're actually sending. Messages wait up to 14 days on the relay while you're offline.
+- **Background delivery on Android:** messages and calls arrive while the app is closed, with no Google services or push servers. Notifications show no names unless you turn them on.
+- **Signed releases:** once installed, the web app only switches to new code signed with the developer's release key.
 - **No sign-up:** your identity is a key generated on your device. You add contacts by QR code or invite link.
 - **Safety numbers** to check that nobody is in the middle. Strangers who message you arrive as *requests* until you reply.
 - **Move your account by QR:** scan a one-time code from your old device and approve after matching a 12-digit code.
-- **6 recovery words:** an encrypted backup kept on your relay, so you can get your account back on any device. The relay can't open it.
+- **8 recovery words:** an encrypted backup kept on your relay, so you can get your account back on any device. The relay can't open it. (6-word sets from earlier versions still work and can be upgraded in Settings.)
 - **Different relays talk to each other:** each person can use a different relay, in any country.
 - **No dependencies:** vanilla JS, WebCrypto and WebCodecs in the browser; a Go relay built only on the standard library (or one PHP file); a Java Android shell with no libraries. Three small vendored libraries handle QR codes and the wordlist.
 
@@ -42,7 +48,7 @@ You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi o
 | **Web app (PWA)** | Open an invite link, then **Install** or **Add to Home Screen** | Android, Windows, Linux, ChromeOS, macOS; on iPhone use Safari's **Add to Home Screen** |
 | **Any browser** | Just open the invite link | Calls need a recent Chrome, Edge, Firefox or Safari |
 
-**To host** (one person per group): download the relay for your device from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./lullwire-relay -new-path`, and put it behind HTTPS. The [self-hosting guide](docs/SELF-HOSTING.md) covers a VPS, a spare phone, shared hosting and Tor.
+**To host** (one person per group): download the relay for your device from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./lullwire-relay init`, answer a few questions, and follow the steps it prints. The [self-hosting guide](docs/SELF-HOSTING.md) covers a VPS, a spare phone, shared hosting and Tor.
 
 ## Quick start (local, 1 minute)
 
@@ -76,7 +82,7 @@ The relay address gets baked into every invite, so **keep it stable.** A tunnel 
 2. **Invite someone.** Tap **Invite someone** and share the link (any messenger, email or SMS) or let them scan the QR. They open it, pick a name, and you're connected.
 3. **Verify once.** Tap the yellow bar in the chat and compare the safety code in person or on a call, then tap **They match**.
 4. **Call.** The phone and camera buttons in the chat header start an encrypted voice or video call.
-5. **Turn on recovery words** in **Settings** and write the 6 words down. They're the only thing you need to get your profile back.
+5. **Turn on recovery words** in **Settings** and write the 8 words down. They're the only thing you need to get your profile back.
 6. **New phone?** On it, choose **From my other device**. On the old one, tap **Scan**, check the 12-digit code matches and approve. The profile moves over, and the old device signs out.
 
 On Android you can also install the [app](docs/SELF-HOSTING.md#android-app); paste an invite link on its welcome screen, or share the link to it.
@@ -88,15 +94,18 @@ Links opened from outside the app (a web page, another app, a shared text) alway
 ```
 cmd/lullwire-relay/ Go relay: one binary, app built in, standard library only
   live.go       WebSocket call rooms (RFC 6455, standard library)
+  mail.go       live mail over the same WebSocket
+  init.go       the setup wizard (lullwire-relay init); config.go reads its settings file
+cmd/lullwire-release/ signs the web app (release key, release.json)
 web/            the app (and the PHP relay)
-  index.html    UI
-  app.js        crypto core + app logic (also loadable in Node for tests)
+  index.html    UI (style.css: its stylesheet)
+  app.js        crypto core, encrypted vault + app logic (also loadable in Node for tests)
   call.js       encrypted calls: WebCodecs (Opus, VP8) + AES-GCM frames
   worklet.js    audio capture and playback for calls
-  relay.php     the PHP mailbox relay (same API and data layout as the Go one)
+  relay.php     the PHP mailbox relay, "lite": messages only, no new features (same API and data layout)
   embed.go      tells the Go build which app files to include
   config.js     optional default relay URL (used for IPFS builds)
-  sw.js         offline support
+  sw.js         offline support; runs only code signed with the release key (release.json)
   vendor/       qrcode-generator (MIT), jsQR (Apache-2.0), BIP39 wordlist (MIT)
 scripts/
   serve.sh      run app + relay with PHP's built-in server
@@ -107,10 +116,11 @@ assets/brand/   logo, icons, banner, social preview, install guide (and render.p
 tests/
   run.sh        full test suite against a throwaway relay
   android/      two-person device test on an emulator (app + browser, video call)
-  core.test.js  crypto, ratchet, relay API, recovery, linking
-  e2e.py        multi-browser test (Playwright)
+  core.test.js  crypto, ratchet, protocol v4, vault, relay API, recovery, linking
+  compat.test.js  Lullwire 0.6 <-> Hush Relay 0.5 (frozen copy in fixtures/)
+  e2e.py        multi-browser test (Playwright); sw.py: signed releases in the browser
 docs/
-  SELF-HOSTING.md  PROTOCOL.md
+  SELF-HOSTING.md  PROTOCOL.md  RELEASING.md
 ```
 
 ## Documentation
@@ -138,8 +148,8 @@ SERIAL=emulator-5554 ./tests/android/run.sh   # Android app on an emulator (need
 - **One active device per account.** Linking moves an account; it doesn't add a second device.
 - **Message history stays on the device that received it.**
 - **The relay operator sees metadata:** IP addresses, timing, size bucket and which mailbox gets mail. They can't see content or senders.
-- **The web delivery problem:** whoever serves the app's files could serve modified code. Pin an IPFS CID or self-host the app if that matters to you.
-- **No push notifications** (web or Android). Messages and calls arrive while the app is open.
+- **The web delivery problem:** once installed, the web app only accepts code signed with the release key, but a fully compromised server can still replace the service worker that enforces this. The Android app and a pinned IPFS CID don't have this problem.
+- **No push notifications in the browser.** The Android app delivers in the background; in a browser, messages arrive while the app is open.
 
 ## Contributing
 

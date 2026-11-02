@@ -2,6 +2,11 @@
 // Lullwire Relay — a dumb mailbox for opaque encrypted blobs.
 // It never sees plaintext, sender identity, names or contacts.
 //
+// This is the "lite" relay for shared hosting: messages and recovery backups only.
+// It is kept working and secure, but gets no new features: calls, live delivery over
+// a WebSocket, invite-only mode, private paths and cover traffic need the Go relay
+// (cmd/lullwire-relay). The app detects which kind it is talking to.
+//
 // Mailboxes: anyone holding a box id can drop a blob in; only the holder of the
 // box's secret (box = first 32 hex of sha256(secret)) can read or delete.
 // Recovery slots: one encrypted backup per locator, overwritable only with the

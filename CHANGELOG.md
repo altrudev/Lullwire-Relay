@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 (2026-11-02): Lullwire Relay
+- **New name: Lullwire Relay** (formerly Hush Relay). Binary `lullwire-relay`, Android package `dev.altru.lullwire` (installs next to Hush Relay; move your profile across with "From my other device"), `LULLWIRE_*` settings. Hush Relay 0.5 apps keep working with Lullwire: messages, calls, backups and 6-word recovery are compatible, and `HUSH_*` settings and old data folders are still read
+- **Protocol v4**
+  - Signed prekeys, replaced every 14 days: conversations open X3DH-style, so even a session's first messages get forward secrecy, and the outer layer is sealed to the prekey
+  - Signed address cards (mailbox, relay, prekey) in invites and messages: a swapped mailbox in an intercepted invite is detected, and contacts follow an address change safely
+  - The sender's mailbox, relay, name and card are bound into every message's authenticated data
+  - Padding gets a random tail; large payloads and recovery slots are padded in 16 KiB steps
+- **Encrypted storage on the device**: messages, contacts, ratchet state and keys are stored encrypted (AES-GCM, blinded indexes). On Android the key is held by the Keystore; anywhere, an optional **app lock** passphrase protects it. Identity keys are non-extractable at runtime. The 0.5 database is migrated once and deleted
+- **8 recovery words** (88 bits) for new setups; 6-word sets still work and can be upgraded from Settings (the old slot is deleted)
+- **One live connection**: the Go relay delivers mail over the same WebSocket as calls, and the app sends through it to contacts on the same relay. Optional **cover traffic** both ways. Long-polling remains as the fallback, with randomised timing
+- **Android background delivery**: a foreground service keeps the connection while the app is closed (no Google services, no push servers); notifications show no names unless turned on
+- **Signed web releases**: `lullwire-release keygen | sign | verify`; installed web apps run only releases signed with the pinned key and refuse forged, unsigned or older ones. Settings shows which code is running
+- **Setup wizard**: `lullwire-relay init` asks a few questions, writes a settings file and prints the proxy, tunnel or Tor configuration and a hardened systemd unit
+- Stricter page security policy (no inline styles; connections only to https/wss relays, plus `.onion` and localhost for development)
+- Long chats load 100 messages at a time; deleting a contact deletes its messages too
+- The PHP relay is now the "lite" relay: messages only, no new features
+- `LEGACY` code paths for Hush Relay 0.5 are marked for removal in 0.8 (docs/PROTOCOL.md)
+- Tests: protocol v4, vault and recovery tests; a 0.5 <-> 0.6 compatibility suite; live mail, cover traffic, wizard and release-tool tests in Go; browser tests for signed releases, migration from 0.5 and the app lock; a background-delivery step in the Android device test
+
 ## 0.5.0 (2026-11-01): calls, private relays and the Android app
 - **Encrypted voice and video calls** through your own relay
   - WebCodecs (Opus 32 kbit/s, VP8 640×360 at 15 fps), audio worklets with a small jitter buffer, echo cancellation
