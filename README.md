@@ -28,7 +28,7 @@ You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi o
 - **Android app:** a small APK (no app store, no Google services) built with the plain SDK tools; it blocks screenshots and keeps keys out of cloud backups.
 - **Live delivery over one connection:** a single long-lived HTTPS (WebSocket) connection to your relay carries messages in both directions, like any mainstream chat app. Optional **cover traffic** hides when you're actually sending. Messages wait up to 14 days on the relay while you're offline.
 - **Background delivery on Android:** messages and calls arrive while the app is closed, with no Google services or push servers. Notifications show no names unless you turn them on.
-- **Signed releases:** once installed, the web app only switches to new code signed with the developer's release key.
+- **Signed releases:** once installed, the web app only switches to new code signed with the developer's release key (fingerprint `BC36A70831DA314F`, shown in the app under **Settings → App code**).
 - **No sign-up:** your identity is a key generated on your device. You add contacts by QR code or invite link.
 - **Safety numbers** to check that nobody is in the middle. Strangers who message you arrive as *requests* until you reply.
 - **Move your account by QR:** scan a one-time code from your old device and approve after matching a 12-digit code.

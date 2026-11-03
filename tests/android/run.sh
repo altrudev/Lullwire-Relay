@@ -28,10 +28,21 @@ for p in dev.altru.lullwire org.chromium.webview_shell; do
   "$ADB" "${S[@]}" shell pm grant $p android.permission.RECORD_AUDIO
   [ $p = dev.altru.lullwire ] && { "$ADB" "${S[@]}" shell pm grant $p android.permission.POST_NOTIFICATIONS 2>/dev/null || true; }
 done
+# Wait (up to 60 s) until an app's WebView has opened its DevTools socket, then forward a port to it.
+# Fixed sleeps were too short on a busy emulator: the app had no process yet, so the forward went nowhere.
+devtools() {
+  local pid=""
+  for _ in $(seq 60); do
+    # (set -e/pipefail: no process yet is not an error here; grep reads everything so the pipe can't break early)
+    pid="$("$ADB" "${S[@]}" shell pidof "$1" | tr -d '\r' || true)"
+    [ -n "$pid" ] && "$ADB" "${S[@]}" shell cat /proc/net/unix | grep -E "webview_devtools_remote_${pid}[[:space:]]*$" >/dev/null && break
+    pid=""; sleep 1
+  done
+  [ -n "$pid" ] || { echo "FAILED $1 did not start a WebView within 60 s"; exit 1; }
+  "$ADB" "${S[@]}" forward "tcp:$2" "localabstract:webview_devtools_remote_$pid" >/dev/null
+}
 "$ADB" "${S[@]}" shell am start --windowingMode 5 -n org.chromium.webview_shell/.WebViewBrowserActivity -d "http://localhost:$PORT/" >/dev/null
-sleep 3
+devtools org.chromium.webview_shell 9334
 "$ADB" "${S[@]}" shell am start --windowingMode 5 -n dev.altru.lullwire/.MainActivity >/dev/null
-sleep 4
-"$ADB" "${S[@]}" forward tcp:9333 "localabstract:webview_devtools_remote_$("$ADB" "${S[@]}" shell pidof dev.altru.lullwire)" >/dev/null
-"$ADB" "${S[@]}" forward tcp:9334 "localabstract:webview_devtools_remote_$("$ADB" "${S[@]}" shell pidof org.chromium.webview_shell)" >/dev/null
+devtools dev.altru.lullwire 9333
 ADB="$ADB" SERIAL="$SERIAL" RELAY="http://localhost:$PORT/relay" node tests/android/device.js
