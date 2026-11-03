@@ -12,7 +12,7 @@
 // that is fully compromised can still ship new code. Pin an IPFS CID or use the
 // Android app when that matters. See SECURITY.md.
 
-const RELEASE_KEY = ''; // set by: go run ./cmd/lullwire-release keygen
+const RELEASE_KEY = 'BK-RRcgg1lVn_kVda1tZ95NGgAf2wtv9fBx3nQzPORygmqC1vKpw-qMGXATqtA-vp19Bbyt_nwRNBk1q5ovB51Q'; // set by: go run ./cmd/lullwire-release keygen
 const LEGACY = 'lullwire-shell';
 const META = 'lullwire-meta';
 const SHELL = ['./', 'index.html', 'style.css', 'config.js', 'app.js', 'call.js', 'worklet.js', 'vendor/words.js', 'vendor/qrcode.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'apple-touch-icon.png'];
