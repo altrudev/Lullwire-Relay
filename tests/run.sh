@@ -27,7 +27,10 @@ if [ "$IMPL" = phpfile ]; then
   # No settings at all, as on a fresh upload: the file must choose a safe data folder itself.
   unset LULLWIRE_DATA
   export PHP_CLI_SERVER_WORKERS=16
-  php -S "localhost:$PORT" -t "$TMP/home/public_html" >"$TMP/server.log" 2>&1 &
+  # Like many hosts' .htaccess ("one address per page"), redirect …/index.html to …/:
+  # the app must still load after a reload (its service worker can't serve a redirect).
+  printf '%s\n' '<?php if (preg_match("#^(.*/)index\.html(\?|$)#", $_SERVER["REQUEST_URI"] ?? "", $m)) { header("Location: " . $m[1], true, 301); exit; }' >"$TMP/hostrules.php"
+  php -d auto_prepend_file="$TMP/hostrules.php" -S "localhost:$PORT" -t "$TMP/home/public_html" >"$TMP/server.log" 2>&1 &
   APP="http://localhost:$PORT/lullwire-relay.php/"; RURL="${APP}relay.php"
 elif [ "$IMPL" = go ]; then
   echo "== go build, vet, unit tests"
@@ -63,7 +66,7 @@ if [ "$IMPL" = phpfile ]; then
     && echo "  ok   data kept outside the public web folder" || { echo "  FAIL data location: $(ls -A "$TMP/home" "$TMP/home/public_html")"; exit 1; }
   # Only the app's own files are served; everything is byte-for-byte the signed web/ copy.
   for f in index.html app.js sw.js release.json vendor/words.js icon-512.png; do
-    curl -s "$APP$f" | cmp -s - "web/$f" || { echo "  FAIL $f differs from web/"; exit 1; }
+    curl -sL "$APP$f" | cmp -s - "web/$f" || { echo "  FAIL $f differs from web/"; exit 1; }
   done
   curl -s "$APP" | cmp -s - web/index.html && echo "  ok   app files identical to web/ (signed release still matches)" || { echo "  FAIL / is not index.html"; exit 1; }
   for p in relay.config.php lullwire-relay-data/x data/x .htaccess embed.go missing.js; do
@@ -75,7 +78,7 @@ if [ "$IMPL" = phpfile ]; then
   [ "$loc" = "301 ${APP}" ] && echo "  ok   the bare file name redirects to the app" || { echo "  FAIL redirect: $loc"; exit 1; }
   tag=$(curl -s -D - -o /dev/null "${APP}app.js" | tr -d '\r' | sed -n 's/^[Ee][Tt]ag: //p')
   [ "$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $tag" "${APP}app.js")" = 304 ] && echo "  ok   unchanged files answer 304" || { echo "  FAIL no 304 for $tag"; exit 1; }
-  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "${APP}index.html")" = 405 ] && [ "$(curl -s -o /dev/null -w '%{http_code}' "$RURL")" = 405 ] \
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "${APP}app.js")" = 405 ] && [ "$(curl -s -o /dev/null -w '%{http_code}' "$RURL")" = 405 ] \
     && echo "  ok   wrong methods refused" || { echo "  FAIL methods"; exit 1; }
   # Hidden setup: the same file under a random name works as a relay, and its data folder
   # takes that name too, so nothing on the server says "lullwire".
@@ -92,7 +95,7 @@ for p in data/ data/recover/ .htaccess scripts/router.php embed.go; do
 done
 [ -z "$(ls -A web | grep -x data || true)" ] && echo "  ok   no data written inside web/" || { echo "  FAIL data inside web/"; exit 1; }
 fi
-curl -s -D - -o /dev/null "${APP}index.html" | grep -qi "frame-ancestors 'none'" && echo "  ok   pages refuse to be framed" || { echo "  FAIL no frame-ancestors header"; exit 1; }
+curl -sL -D - -o /dev/null "${APP}index.html" | grep -qi "frame-ancestors 'none'" && echo "  ok   pages refuse to be framed" || { echo "  FAIL no frame-ancestors header"; exit 1; }
 # New recovery slots are rate limited per client (5 per day).
 codes=""
 for i in 1 2 3 4 5 6 7; do

@@ -208,7 +208,8 @@ with sync_playwright() as pw:
         print('8 calls: skipped (this relay has no call support)')
     b.close()
 
-real = [e for e in errs if '400 (Bad Request)' not in e]  # 400s are the deliberate relay probes
+# 400s are the deliberate relay probes (over HTTP/2 the browser logs no reason phrase: "400 ()").
+real = [e for e in errs if 'status of 400 (' not in e]
 # Steps 3b/3c cut Bob off on purpose; the browser logs those failed requests.
 real = [e for e in real if not (e.startswith('B console:') and ('net::ERR_INTERNET_DISCONNECTED' in e or 'net::ERR_FAILED' in e))]
 print('  dialogs:', dialogs); print('  errors:', real or 'none')

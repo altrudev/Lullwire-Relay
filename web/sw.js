@@ -56,7 +56,10 @@ async function stage(m) {
       if (!res.ok) throw new Error(file + ': ' + res.status);
       const body = await res.clone().arrayBuffer();
       if (hex(await crypto.subtle.digest('SHA-256', body)) !== sum) throw new Error(file + ' does not match the signed release');
-      await cache.put(file, res);
+      // Store a fresh response, never the fetched one: many hosts redirect …/index.html to
+      // …/ (a common .htaccess rule), and a browser refuses to load a page from a
+      // redirected response, so every reload would fail. The bytes are what was verified.
+      await cache.put(file, new Response(body, { status: 200, headers: res.headers }));
     }));
   } catch (e) { await caches.delete(name); throw e; }
   return { cache: name, version: m.version, files: Object.keys(m.files) };
