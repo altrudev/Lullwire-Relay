@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1 (2026-11-04): reloads on hosts that redirect index.html
+- **Fix:** on web hosting whose `.htaccess` redirects `…/index.html` to `…/` (a common "one address per page" rule), the installed app stored a redirected copy of its start page, and browsers refuse to open a page from one: every reload failed with a network error, including the sign-out after moving a profile to a new device. The app now stores a clean copy of each verified file. Found by running the browser test against the single file on lullwire.com
+- Tests: the single-file suite runs behind such a redirect; the browser test recognises the deliberate relay probes over HTTP/2
+
 ## 0.7.0 (2026-11-04): file transfers, hidden single-file setup
 - **Send files** with the paperclip in any chat: photos, documents, anything up to 16 MB. A file travels as pieces of 192 KiB, each an ordinary end-to-end encrypted message, so every relay (Go, PHP, single file) carries it like chat and keeps it until the recipient comes online. The recipient's app checks the whole file against its SHA-256 before showing it. Photos get a preview; **Save** downloads the file (browser) or asks where to keep it (Android). A file that couldn't be sent resumes from the first missing piece
 - Files are stored encrypted on the device, each with its own key kept in the encrypted message record, so changing the app lock never has to re-encrypt them. Deleting a contact deletes their files
