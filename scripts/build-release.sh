@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # Build the relay for every supported platform, plus checksums:
-#   ./scripts/build-release.sh            -> dist/lullwire-relay-<version>-<os>-<arch>[.exe], dist/SHA256SUMS
+#   ./scripts/build-release.sh            -> dist/lullwire-relay-<version>-<os>-<arch>[.exe],
+#                                            dist/lullwire-relay.php (shared hosting), dist/SHA256SUMS
 # The Android APK is built separately (android/build.sh) and its .apk can be copied
 # into dist/ before running this, so SHA256SUMS covers it too.
 #
@@ -33,5 +34,9 @@ for t in "${targets[@]}"; do
     go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/$name" ./cmd/lullwire-relay
   echo "built $name"
 done
+# The single-file edition for shared hosting: the signed app and the lite relay in one .php.
+if [[ "${UNSIGNED:-}" != 1 ]]; then
+  go run ./cmd/lullwire-release php -out "$OUT"
+fi
 (cd "$OUT" && rm -f SHA256SUMS && sha256sum -- * | grep -v ' SHA256SUMS$' > SHA256SUMS)
 echo "checksums: $OUT/SHA256SUMS"

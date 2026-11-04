@@ -76,7 +76,10 @@ func runInit(in io.Reader, out io.Writer, args []string) error {
 	fmt.Fprintln(out, "  1  my own domain, through Caddy or nginx (HTTPS)")
 	fmt.Fprintln(out, "  2  Cloudflare Tunnel (no open ports; works on a phone or behind a home router)")
 	fmt.Fprintln(out, "  3  Tor onion service")
-	fmt.Fprintln(out, "  4  just testing on this computer")
+	fmt.Fprintln(out, "  4  just testing on this computer (nobody else can reach it)")
+	fmt.Fprintln(out, "No domain or server? Upload lullwire-relay.php from the release page to any web")
+	fmt.Fprintln(out, "hosting with PHP and HTTPS instead: one file, no setup (messages only, no calls).")
+	fmt.Fprintln(out)
 	var a initAnswers
 	switch ask("Choose 1-4", "1") {
 	case "2":
@@ -174,6 +177,9 @@ func printNextSteps(out io.Writer, a initAnswers, conf string) {
 	switch a.reach {
 	case "local":
 		fmt.Fprintf(out, "\nThen open http://localhost:%d/ in a browser on this computer.\n", a.port)
+		fmt.Fprintln(out, "\nThis relay is for testing: only this computer can reach it, and invites made here")
+		fmt.Fprintln(out, "point at localhost, so they won't work for anyone else. To chat with other people,")
+		fmt.Fprintln(out, "run init again and pick 1, 2 or 3, or upload lullwire-relay.php to web hosting.")
 		return
 	case "proxy":
 		fmt.Fprintf(out, "\nCaddy (gets an HTTPS certificate by itself; passes calls and live mail through):\n\n")

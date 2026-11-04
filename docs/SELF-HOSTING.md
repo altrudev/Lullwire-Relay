@@ -2,10 +2,10 @@
 
 There are two relays. The **Go relay** is the main one and gets every new feature. The **PHP relay** is a "lite" version for shared hosting: messages and recovery only, kept working and secure but with no new features. Both use the same API and data folder layout, so you can switch from PHP to Go without losing mail.
 
-| | Go relay (`lullwire-relay`) | PHP relay (`web/relay.php`, lite) |
+| | Go relay (`lullwire-relay`) | PHP relay (`lullwire-relay.php`, lite) |
 |---|---|---|
-| Install | One file, nothing else | PHP 7.4+ and a web server |
-| App included | Yes, built in | Upload `web/` alongside it |
+| Install | One program, plus a domain with HTTPS in front (Caddy, nginx, Cloudflare Tunnel or Tor) | One file uploaded to any PHP 7.4+ hosting with HTTPS |
+| App included | Yes, built in | Yes, built in (single-file edition) |
 | Delivery | One live WebSocket per person; thousands at once (3,000 long-polls tested at about 80 MB) | Long-polling, one PHP worker each (32 by default) |
 | Calls, private path, invite-only, cover traffic | Yes | No |
 | Setup wizard | `lullwire-relay init` | No |
@@ -217,11 +217,19 @@ sudo systemctl enable --now lullwire-relay && sudo systemctl reload caddy
 
 ## Shared hosting
 
-On cPanel or any Apache with PHP 7.4+:
+The single-file edition is the app and the lite relay in **one file**. On cPanel or any host with PHP 7.4+ and HTTPS:
 
-1. Upload the **contents** of `web/` to a folder, for example `public_html/lullwire/`.
-2. Recommended: create `relay.config.php` next to `relay.php` that points `LULLWIRE_DATA` to a folder outside `public_html`.
-3. Open `https://yourdomain/lullwire/`.
+1. Download `lullwire-relay.php` from the [releases page](https://github.com/altrudev/Lullwire-Relay/releases) (check it against `SHA256SUMS`).
+2. Upload it to your public web folder, for example `public_html/` (File Manager → Upload). You can rename it, for example to `chat.php`.
+3. Open `https://yourdomain/lullwire-relay.php` (or your name for it). It takes you to the app; create your profile and send invites. Invites carry your relay's address, so the people you invite connect to it automatically.
+
+Nothing else to configure. The file stores mail in a folder named `lullwire-relay-data` **above** your public web folder (your hosting account's home) when the host allows that, so it is never reachable from the web; otherwise it puts it next to the file and locks it with `.htaccess`, which Apache and LiteSpeed honour. To choose the folder yourself, put a `relay.config.php` next to the file that defines `LULLWIRE_DATA`.
+
+The app's address ends in a slash (`…/lullwire-relay.php/`): the file serves the app's pages below its own name, so it needs no other files and no rewrite rules. That works on Apache, LiteSpeed and PHP's built-in server; on nginx, PHP must be set up to pass the path after `.php` (`fastcgi_split_path_info`). To update, upload the new release's `lullwire-relay.php` over the old one, under the same name (your own name, if you renamed it): the address is part of every invite, so it must not change.
+
+**Why not the Go relay here?** Shared hosting runs PHP, not programs, and the Go relay also needs a domain with HTTPS in front of it. Run as is, the Go relay only answers on the computer it runs on (`127.0.0.1`), and invites made there point at `localhost`, which nobody else can open.
+
+**From the source folder instead:** upload the contents of `web/` (including `relay.php`) to a folder such as `public_html/lullwire/`, ideally with a `relay.config.php` that points `LULLWIRE_DATA` outside `public_html`, and open `https://yourdomain/lullwire/`.
 
 Shared hosts limit simultaneous PHP processes. This is fine for small groups; for more users, use a VPS. Ask your host to turn off access logs for that folder if you can.
 

@@ -7,6 +7,7 @@
 //	go run ./cmd/lullwire-release keygen            # once: makes the key, pins it in web/sw.js
 //	go run ./cmd/lullwire-release sign 0.6.0        # each release: writes web/release.json
 //	go run ./cmd/lullwire-release verify            # checks web/ against web/release.json
+//	go run ./cmd/lullwire-release php               # dist/lullwire-relay-<version>.php: app + relay, one file
 //
 // The key (ECDSA P-256) lives in ~/.lullwire-relay/web-signing.pem; keep it offline
 // and backed up. release.json = {"m": manifest JSON, "s": signature over m}, where the
@@ -54,6 +55,7 @@ func main() {
 	fsFlags := flag.NewFlagSet("lullwire-release", flag.ExitOnError)
 	keyPath := fsFlags.String("key", envOr("LULLWIRE_WEB_KEY", filepath.Join(home, ".lullwire-relay", "web-signing.pem")), "signing key file")
 	dir := fsFlags.String("dir", "web", "the app folder")
+	outDir := fsFlags.String("out", "dist", "where php writes the single-file relay")
 	if len(os.Args) < 2 {
 		usage()
 	}
@@ -79,6 +81,8 @@ func main() {
 		if m, err = verify(*dir); err == nil {
 			fmt.Printf("ok: %s, %d files, key %s\n", m.Version, len(m.Files), fingerprint(m.Key))
 		}
+	case "php":
+		_, err = phpBundle(*dir, *outDir)
 	default:
 		usage()
 	}
@@ -89,7 +93,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lullwire-release keygen | sign <version> | verify   [-key file] [-dir web]")
+	fmt.Fprintln(os.Stderr, "usage: lullwire-release keygen | sign <version> | verify | php   [-key file] [-dir web] [-out dist]")
 	os.Exit(2)
 }
 

@@ -48,7 +48,7 @@ You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi o
 | **Web app (PWA)** | Open an invite link, then **Install** or **Add to Home Screen** | Android, Windows, Linux, ChromeOS, macOS; on iPhone use Safari's **Add to Home Screen** |
 | **Any browser** | Just open the invite link | Calls need a recent Chrome, Edge, Firefox or Safari |
 
-**To host** (one person per group): download the relay for your device from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./lullwire-relay init`, answer a few questions, and follow the steps it prints. The [self-hosting guide](docs/SELF-HOSTING.md) covers a VPS, a spare phone, shared hosting and Tor.
+**To host** (one person per group), the easy way: download **`lullwire-relay.php`** from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest), upload that one file to any web hosting with PHP and HTTPS (cPanel and most shared hosts), and open `https://your-site/lullwire-relay.php` in a browser. That's the whole setup: create your profile there and send invites. It does messages and recovery; for voice and video calls, run the Go relay instead: download it for your device (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./lullwire-relay init` and follow the steps it prints. The Go relay needs a domain with HTTPS in front of it (Caddy, nginx, Cloudflare Tunnel or Tor); on its own it only answers on your computer. The [self-hosting guide](docs/SELF-HOSTING.md) covers every option.
 
 ## Quick start (local, 1 minute)
 
@@ -67,11 +67,11 @@ Browsers only allow the app's encryption on `https://` (or `localhost`), so a pu
 
 | Where | Effort | Notes |
 |---|---|---|
-| **Your own VPS, private** (recommended) | Medium | Hidden path + join code: looks like a plain website, calls included. [Guide](docs/SELF-HOSTING.md#private-setup-recommended) |
+| **Shared hosting, one file** (easiest) | Easy | Upload `lullwire-relay.php`, open it. Messages only, no calls. [Guide](docs/SELF-HOSTING.md#shared-hosting) |
+| **Your own VPS, private** (recommended for calls) | Medium | Hidden path + join code: looks like a plain website, calls included. [Guide](docs/SELF-HOSTING.md#private-setup-recommended) |
 | **Tor onion service** (optional, any Linux device or phone) | Medium | No domain, tunnel company or open ports; the location stays hidden. [Guide](docs/SELF-HOSTING.md#tor-onion-service) |
 | **Spare Android phone** (Termux + Cloudflare Tunnel) | Medium | Free and always on while plugged in. [Guide](docs/SELF-HOSTING.md#android-phone-as-the-relay) |
 | **VPS** (Debian/Ubuntu + Caddy) | Medium | Most reliable, about $5/month. [Guide](docs/SELF-HOSTING.md#vps) |
-| **Shared hosting** (cPanel, Apache, PHP) | Easy | Upload the `web/` folder. [Guide](docs/SELF-HOSTING.md#shared-hosting) |
 | **App on IPFS**, relay anywhere above | Advanced | Anyone can mirror the app. [Guide](docs/SELF-HOSTING.md#ipfs) |
 
 The relay address gets baked into every invite, so **keep it stable.** A tunnel URL that changes on every restart will break your contacts' links.
