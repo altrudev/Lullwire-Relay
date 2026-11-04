@@ -17,6 +17,15 @@ VERSION="$(sed -n 's/^var version = "\(.*\)"/\1/p' cmd/lullwire-relay/main.go)"
 OUT=dist
 mkdir -p "$OUT"
 if [[ "${UNSIGNED:-}" != 1 ]]; then
+  # Signing covers every file in web/, so a stray file (a zip, an editor backup) would be
+  # signed into the release while the binaries don't ship it, and installed apps would
+  # then refuse the update. Only sign exactly what is committed.
+  stray="$(git status --porcelain --untracked-files=all -- web | grep -v ' web/release.json$' || true)"
+  if [[ -n "$stray" ]]; then
+    echo "web/ has files that aren't committed; move or commit them first:" >&2
+    echo "$stray" >&2
+    exit 1
+  fi
   go run ./cmd/lullwire-release sign "$VERSION"
   go run ./cmd/lullwire-release verify
 fi
