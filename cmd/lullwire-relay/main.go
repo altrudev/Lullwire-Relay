@@ -25,10 +25,12 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -61,6 +63,10 @@ func main() {
 	prefix := flag.String("path", set("path", ""), "private path for the app and relay, e.g. /k7q4mxp2/ (everything else shows the front page); see -new-path")
 	cover := flag.String("cover", set("cover", ""), "HTML file shown at every other address (default: a plain placeholder page)")
 	joinCode := flag.String("join-code", set("join-code", ""), "invite-only mode: people need this code (it travels inside your invites) to use the relay")
+	public := flag.Bool("public", isTrue(set("public", "")), "make this computer reachable from the internet on its own: ask the router to forward port 443 here (UPnP or NAT-PMP) and get an HTTPS certificate for the public address from Let's Encrypt")
+	publicPort := flag.Int("public-port", atoiOr(set("public-port", ""), 8443), "with -public: the port the relay listens on (the router forwards 443 to it; use 443 on a computer with a public address of its own)")
+	publicIP := flag.String("public-ip", set("public-ip", ""), "with a router set up by hand (TCP 443 forwarded to -public-port here): this network's public address")
+	acmeDir := flag.String("acme", set("acme", letsEncrypt), "certificate authority (ACME directory) for -public")
 	newPath := flag.Bool("new-path", false, "print a random private path and join code, then exit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Usage = func() {
@@ -129,8 +135,30 @@ func main() {
 		}
 	}()
 
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
+	var pub *publicHost
+	var ln net.Listener
+	if *public || *publicIP != "" {
+		if ln, err = listenPublic(*publicPort); err != nil {
+			log.Fatal(err)
+		}
+		if *publicIP != "" {
+			ip, perr := netip.ParseAddr(*publicIP)
+			if perr != nil {
+				log.Fatalf("-public-ip: %v", perr)
+			}
+			pub, err = manualPublic(*data, *acmeDir, ip.Unmap(), *publicPort, nil, log.Printf)
+		} else {
+			log.Printf("asking the router to make this computer reachable from the internet…")
+			pctx, cancel := context.WithTimeout(ctx, 40*time.Second)
+			pub, err = preparePublic(pctx, *data, *acmeDir, *publicPort, nil, log.Printf)
+			cancel()
+		}
+		if err != nil {
+			ln.Close()
+			log.Fatal(err)
+		}
+		srv.TLSConfig = pub.tlsConfig()
+	} else if ln, err = net.Listen("tcp", *addr); err != nil {
 		log.Fatal(err)
 	}
 	mode := ""
@@ -143,7 +171,11 @@ func main() {
 	if cfgPath != "" {
 		mode += ", settings: " + cfgPath
 	}
-	log.Printf("lullwire-relay %s on http://%s%s (data: %s%s)", version, ln.Addr(), base, *data, mode)
+	if pub == nil {
+		log.Printf("lullwire-relay %s on http://%s%s (data: %s%s)", version, ln.Addr(), base, *data, mode)
+	} else {
+		log.Printf("lullwire-relay %s on port %d, public address %s (data: %s%s)", version, *publicPort, pub.URL(base), *data, mode)
+	}
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -153,7 +185,24 @@ func main() {
 		defer cancel()
 		_ = srv.Shutdown(sctx) // finishes requests in flight before returning
 	}()
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if pub == nil {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+		<-stopped
+		return
+	}
+	served := make(chan error, 1)
+	go func() { served <- srv.ServeTLS(ln, "", "") }() // the certificate comes from pub.certs
+	if err := pub.ensureCert(ctx); err != nil {
+		stop()
+		<-stopped
+		pub.maintain(ctx, base) // only removes the router's port mapping (ctx is done)
+		log.Fatal(err)
+	}
+	go pub.maintain(ctx, base)
+	log.Printf("ready: open %s on your phone or another computer to create your profile there, then send invites from it", pub.URL(base))
+	if err := <-served; err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 	<-stopped
@@ -388,4 +437,12 @@ func (s *staticFiles) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	http.ServeContent(w, req, name, info.ModTime(), rs)
+}
+
+// atoiOr reads a number from a setting, or def when it is empty or not a number.
+func atoiOr(v string, def int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+		return n
+	}
+	return def
 }
