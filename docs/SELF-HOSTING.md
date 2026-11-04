@@ -88,17 +88,18 @@ The folder only ever holds sealed envelopes (deleted once collected, or after 14
 
 ### If your website has its own security headers
 
-If your site's `.htaccess` sets a `Content-Security-Policy` or `Permissions-Policy` for every page (many security guides suggest it), those headers also reach the relay page and override the app's own policy. You'd see: **Scan** can't use the camera, the app can't be installed, and contacts on other relays can't be reached. Exclude the relay file from them, for example:
+If your site's `.htaccess` sets a `Content-Security-Policy` or `Permissions-Policy` for every page (many security guides suggest it), those headers also reach the relay page and override the app's own policy. You'd see: **Scan** can't use the camera, the app can't be installed, and contacts on other relays can't be reached. Add this at the end of the `.htaccess` in the same folder as the relay file (use your file's name if you renamed it):
 
 ```apache
-<IfModule mod_headers.c>
-  SetEnvIf Request_URI "^/lullwire-relay\.php" LULLWIRE_RELAY
-  Header always set Content-Security-Policy "default-src 'none'; …your policy…" env=!LULLWIRE_RELAY
-  Header always set Permissions-Policy "camera=(), …your policy…" env=!LULLWIRE_RELAY
-</IfModule>
+<Files "lullwire-relay.php">
+  <IfModule mod_headers.c>
+    Header always set Content-Security-Policy "frame-ancestors 'none'"
+    Header always unset Permissions-Policy
+  </IfModule>
+</Files>
 ```
 
-The app sends its own strict policy; it doesn't need yours.
+The rest of your site keeps its headers. The app brings its own strict policy, so it doesn't need yours. This works on Apache and LiteSpeed (cPanel); a `SetEnvIf Request_URI` exception doesn't work on LiteSpeed. Check it with `curl -sI https://yourdomain/lullwire-relay.php/`: the only `content-security-policy` line should be `frame-ancestors 'none'`.
 
 ### If you deploy your website with a sync tool
 
