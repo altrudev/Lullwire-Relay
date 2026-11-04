@@ -859,6 +859,7 @@ if (typeof document !== 'undefined') (() => {
   const trustLabel = c => c.request ? 'Message request' : c.verified ? 'Verified' : 'Not verified yet';
   async function openChat(id) {
     const c = contacts.get(id); if (!c) return;
+    if (!net.ok) wake(false); // don't make someone opening a chat wait out a retry delay
     if (current !== id) shown = PAGE;
     show('vChat', c.name, trustLabel(c)); current = id;
     if (c.unread) await edit(id, x => { if (!x.unread) return false; x.unread = 0; });
@@ -1041,8 +1042,72 @@ if (typeof document !== 'undefined') (() => {
   // relay can't tie what you send to your mailbox (as with plain HTTPS deliveries).
   // Optional cover traffic on both looks like real deliveries, replies and acks.
   // Fallback: long-polling, for relays (PHP) or proxies without WebSocket support.
-  const mail = { ws: null, send: null, reqs: new Map(), seq: 1, fails: 0, pollUntil: 0 };
+  const mail = { ws: null, send: null, reqs: new Map(), seq: 1, fails: 0, pollUntil: 0, kick: null };
   const awake = () => document.visibilityState === 'visible' || !!activeCall || (has('setBackground') && me && me.bg !== false);
+
+  // ----- connection status -----
+  // Whether mail can arrive right now, shown in a bar under the header. Phones drop
+  // connections without telling anyone when they lock, switch apps or change networks;
+  // on coming back (or when the network returns, a chat opens, or Retry is tapped) the
+  // app reconnects at once instead of waiting out the retry delay.
+  const net = { ok: false, fails: 0, since: Date.now(), retryAt: 0, backoff: 2000, flash: 0, wakers: new Set(), poll: null };
+  const GRACE = 2500; // a reconnect this quick isn't worth showing
+  function nap(ms) { // a sleep that wake() cuts short
+    return new Promise(res => {
+      const done = () => { clearTimeout(t); net.wakers.delete(done); res(); };
+      const t = setTimeout(done, ms); net.wakers.add(done);
+    });
+  }
+  function paintNet() {
+    const bar = $('#netBar'), retry = $('#netRetry'), now = Date.now();
+    let text = '', ok = false;
+    if (!me || paused || !awake() || ['vSetup', 'vLock', 'vPair'].some(v => !$('#' + v).hidden)) text = '';
+    else if (net.ok) { if (now < net.flash) { text = 'Connected'; ok = true; } }
+    else if (navigator.onLine === false) text = 'No internet connection. Waiting for it…';
+    else if (now - net.since < GRACE && net.fails < 2) text = '';
+    else if (net.retryAt > now + 1000) text = 'Offline. Retrying in ' + Math.ceil((net.retryAt - now) / 1000) + ' s';
+    else text = 'Connecting…';
+    bar.hidden = !text; bar.classList.toggle('ok', ok);
+    $('#netText').textContent = text;
+    retry.hidden = !text || ok || navigator.onLine === false;
+  }
+  setInterval(paintNet, 1000);
+  function netUp() {
+    if (!net.ok) { const shown = !$('#netBar').hidden && !$('#netBar').classList.contains('ok'); net.ok = true; net.flash = shown ? Date.now() + 1500 : 0; }
+    net.fails = 0; net.retryAt = 0; net.backoff = 2000; paintNet();
+  }
+  function netDown() {
+    if (net.ok) { net.ok = false; net.since = Date.now(); }
+    net.fails++; paintNet();
+  }
+  async function retryLater() { // after a failed connection: wait (cut short by wake), longer each time
+    netDown();
+    const d = jitter(net.backoff); net.retryAt = Date.now() + d; paintNet();
+    await nap(d);
+    net.retryAt = 0; net.backoff = Math.min(net.backoff * 2, 60000); paintNet();
+  }
+  // Reconnect now. fresh: also drop the current connection, which a phone that slept may
+  // have left half-dead (mail on it is sent again: the relay keeps it until acknowledged).
+  function wake(fresh) {
+    net.backoff = 2000; net.retryAt = 0;
+    if (fresh) {
+      if (net.poll) net.poll.abort();
+      if (mail.kick) mail.kick();
+      if (net.ok) { net.ok = false; net.since = Date.now(); net.fails = 0; }
+    }
+    for (const w of [...net.wakers]) w();
+    paintNet();
+  }
+  $('#netRetry').onclick = () => wake(true);
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+    const away = hiddenAt ? Date.now() - hiddenAt : 0; hiddenAt = 0;
+    wake(away > 15000); // a short glance away leaves a working connection alone
+  });
+  addEventListener('online', () => wake(true));
+  addEventListener('offline', () => { netDown(); });
+  addEventListener('pageshow', e => { if (e.persisted) wake(true); });
   const hexBytes = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));
   const ENV_MIN = 1024 + 93; // a 1 KiB-class envelope; real ones add a random tail of up to 128 bytes
   function sendFrame(kind, boxBytes, body) {
@@ -1108,9 +1173,12 @@ if (typeof document !== 'undefined') (() => {
         if (done) return; done = true;
         clearInterval(watch); clearTimeout(openTimer); clearTimeout(coverTimer); clearTimeout(ackTimer);
         if (mail.ws === ws) mail.ws = null;
+        if (mail.kick === kick) mail.kick = null;
+        if (ready && net.ok) { net.ok = false; net.since = Date.now(); paintNet(); } // reconnecting from here
         try { ws.close(); } catch {}
         resolve(how);
       };
+      const kick = () => finish('ok'); mail.kick = kick;
       const url = liveURL(me.relay);
       try { ws = new WebSocket(url); } catch { return resolve('fail'); }
       ws.binaryType = 'arraybuffer';
@@ -1130,7 +1198,7 @@ if (typeof document !== 'undefined') (() => {
         let m; try { m = JSON.parse(ev.data); } catch { return; }
         if (m.op === 'ready') {
           ready = true; mail.ws = ws; mail.fails = 0; clearTimeout(openTimer); cover();
-          if ($('#toast').textContent === 'Offline — reconnecting…') toast('');
+          netUp();
         } else if (m.op === 'error') finish(ready ? 'ok' : 'fail');
         else if (m.op === 'n') ack(hex(rand(11))); // cover traffic in: answered with an ack, like real mail
         else if (m.op === 'm' && typeof m.id === 'string' && typeof m.d === 'string') {
@@ -1154,8 +1222,13 @@ if (typeof document !== 'undefined') (() => {
   }
   // Long-polling: the relay holds each request open until mail arrives (up to 20s).
   async function pollOnce(wait) {
+    // Abortable: wake() drops a request a sleeping phone may have frozen, and the relay
+    // answers within wait seconds, so one that takes much longer is dead.
+    const ctl = new AbortController(); net.poll = ctl;
+    let woken = true;
+    const timer = setTimeout(() => { woken = false; ctl.abort(); }, (wait + 15) * 1000);
     try {
-      const r = await fetch(me.relay + '?a=get&wait=' + wait, { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret }) });
+      const r = await fetch(me.relay + '?a=get&wait=' + wait, { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret }), signal: ctl.signal });
       if (r.status === 429) { await sleep(jitter(1000 * (Number(r.headers.get('Retry-After')) || 5))); return true; }
       if (!r.ok) throw new Error(r.status);
       const items = await r.json();
@@ -1172,27 +1245,26 @@ if (typeof document !== 'undefined') (() => {
         await fetch(me.relay + '?a=ack', { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret, ids: done }) });
         refreshViews();
       }
-      if ($('#toast').textContent === 'Offline — reconnecting…') toast('');
+      netUp();
       return true;
-    } catch { toast('Offline — reconnecting…', 0); return false; }
+    } catch {
+      return ctl.signal.aborted && woken; // dropped on purpose by wake(): start again, nothing failed
+    } finally { clearTimeout(timer); if (net.poll === ctl) net.poll = null; }
   }
   async function liveLoop() {
-    let backoff = 2000;
     while (me) {
-      if (paused || !awake()) { await sleep(1000); continue; }
+      if (paused || !awake()) { await nap(1000); continue; }
       if (me.mail && Date.now() > mail.pollUntil) {
         const how = await runSocket();
-        if (how === 'ok') { backoff = 2000; await sleep(jitter(800)); continue; }
+        if (how === 'ok') { await nap(jitter(800)); continue; }
         // A proxy that doesn't pass WebSockets: fall back to long-polling for a while.
         if (++mail.fails >= 3) { mail.pollUntil = Date.now() + 5 * 60000; mail.fails = 0; }
-        toast('Offline — reconnecting…', 0);
-        await sleep(jitter(backoff)); backoff = Math.min(backoff * 2, 60000);
+        await retryLater();
         continue;
       }
       const t0 = Date.now();
       // Varying waits and gaps keep the request rhythm from being a fingerprint.
-      if (await pollOnce(14 + randInt(7))) backoff = 2000;
-      else { await sleep(jitter(backoff)); backoff = Math.min(backoff * 2, 60000); }
+      if (!(await pollOnce(14 + randInt(7)))) await retryLater();
       const gap = Date.now() - t0;
       const min = 1500 + randInt(800);
       if (gap < min) await sleep(min - gap); // never poll in a tight loop

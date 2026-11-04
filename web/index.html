@@ -22,6 +22,7 @@
   <button id="scanBtn" class="icon-btn" hidden aria-label="Scan a code"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></svg></button>
   <button id="settingsBtn" class="icon-btn" hidden aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
+<div id="netBar" class="netbar" hidden role="status" aria-live="polite"><span id="netText"></span><button id="netRetry" type="button" hidden>Retry now</button></div>
 <main>
   <!-- App lock -->
   <section id="vLock" class="view" hidden><div class="lock">
@@ -247,7 +248,7 @@
     <h3>Danger zone</h3>
     <div class="card"><button id="wipeBtn" class="btn danger">Erase everything on this device</button></div>
 
-    <p class="small muted foot">Lullwire Relay <span id="appVer">0.6.1</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
+    <p class="small muted foot">Lullwire Relay <span id="appVer">0.6.2</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
       <a href="https://github.com/altrudev/Lullwire-Relay" target="_blank" rel="noopener noreferrer">Source code</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></p>

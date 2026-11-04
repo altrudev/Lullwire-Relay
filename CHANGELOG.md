@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.2 (2026-11-04): connection status and instant reconnect
+- **Connection status bar** under the header instead of a toast: "Connecting…", "Offline. Retrying in N s" with **Retry now**, or "No internet connection", then a brief "Connected". A reconnect that takes under 2.5 seconds isn't shown at all, so switching apps doesn't make it flicker
+- **Reconnects at once** when you come back to the app after 15 seconds or more, when the network returns, when you open a chat, or when you tap Retry, instead of waiting out a retry delay that could reach a minute. A connection a sleeping phone may have left half-dead is replaced
+- Long-polling requests time out (the relay answers within the wait it was asked for), so one a phone froze mid-way can't hang the app
+- Browser test: offline and back (the message sent meanwhile arrives within seconds) and, on long-polling relays, Retry while the relay is unreachable
+- Also includes 0.6.1 (not released separately)
+
 ## 0.6.1 (2026-11-04): one-file hosting, mailbox ids out of access logs
 - **Single-file edition for web hosting:** `lullwire-relay.php` holds the app and the lite relay in one file. Upload it to any PHP host with HTTPS and open it; mail is kept above the public web folder when the host allows it. Built by `lullwire-release php` and `scripts/build-release.sh`
 - **Mailbox ids no longer appear in URLs:** the app delivers with a new `send` action that carries the recipient's mailbox inside the request body instead of `?box=` in the address, so web server access logs (and hosts that keep them) can't link a sender's IP to a recipient's mailbox. Both relays still accept the old `put` for earlier apps, and the app falls back to it, once per relay, for relays older than 0.6.1

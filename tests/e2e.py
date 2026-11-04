@@ -85,6 +85,44 @@ with sync_playwright() as pw:
     chat_with(A, 'Bob'); say(A, 'hi bob'); t = time.time()
     B.wait_for_selector('.m.in:has-text("hi bob")', timeout=10000); print('  reply live: %.1fs' % (time.time() - t))
 
+    # 3b. Bob's phone loses the network. Browsers keep connections that are already open when
+    # they go offline, so drop Bob's (the 'online' event does that, like a phone waking up)
+    # while he can't make new ones. The status bar says so; mail sent meanwhile waits on the
+    # relay; when the network is back he reconnects at once, not after the retry delay
+    # (several seconds by then), and the bar clears.
+    B.context.set_offline(True)
+    B.wait_for_selector('#netBar:not([hidden])', timeout=10000)
+    offline_text = B.text_content('#netText')
+    B.evaluate("window.dispatchEvent(new Event('online'))")
+    say(A, 'sent while bob was offline')
+    time.sleep(12)  # long enough for the retry delay to grow past the point being tested
+    early = B.locator('.m.in:has-text("sent while bob was offline")').count()
+    t = time.time(); B.context.set_offline(False)
+    B.wait_for_selector('.m.in:has-text("sent while bob was offline")', timeout=20000); back = time.time() - t
+    B.wait_for_selector('#netBar', state='hidden', timeout=10000)
+    print('3b offline shown as: "%s" | cut off for real: %s | back online: message in %.1fs, bar cleared' % (offline_text, early == 0, back))
+    if 'internet' not in offline_text: errs.append('offline bar said: ' + offline_text)
+    if early: errs.append('the message arrived while Bob was offline: the test did not cut him off')
+    if back > 6: errs.append('reconnect after the network returned took %.1fs' % back)
+
+    # 3c. The relay can't be reached while the network is up (long-polling relays; the Go
+    # relay's live connection isn't affected by request routing): "Offline. Retrying in N s"
+    # with Retry, and Retry reconnects straight away instead of waiting out N.
+    if not B.is_visible('#voiceBtn'):
+        B.route('**/relay.php?a=get*', lambda r: r.abort())
+        B.evaluate("window.dispatchEvent(new Event('online'))")  # drop the current long-poll now
+        B.wait_for_function("/Retrying in ([5-9]|[1-9][0-9]) s/.test(document.querySelector('#netText').textContent)", timeout=60000)
+        retry_text = B.text_content('#netText'); retry_shown = B.is_visible('#netRetry')
+        say(A, 'after retry'); time.sleep(0.3)
+        B.unroute('**/relay.php?a=get*'); B.click('#netRetry'); t = time.time()
+        B.wait_for_selector('.m.in:has-text("after retry")', timeout=20000); back = time.time() - t
+        B.wait_for_selector('#netBar', state='hidden', timeout=10000)
+        print('3c relay unreachable shown as: "%s", Retry button: %s | Retry -> message in %.1fs' % (retry_text, retry_shown, back))
+        if not retry_shown: errs.append('no Retry button while offline')
+        if back > 4: errs.append('Retry took %.1fs' % back)
+    else:
+        print('3c relay unreachable: skipped (live connection relay)')
+
     # 4. Verify the safety code.
     A.click('#trustBar'); A.wait_for_selector('#vSafety:not([hidden])')
     codeA = A.text_content('#safetyGrid')
@@ -143,5 +181,7 @@ with sync_playwright() as pw:
     b.close()
 
 real = [e for e in errs if '400 (Bad Request)' not in e]  # 400s are the deliberate relay probes
+# Steps 3b/3c cut Bob off on purpose; the browser logs those failed requests.
+real = [e for e in real if not (e.startswith('B console:') and ('net::ERR_INTERNET_DISCONNECTED' in e or 'net::ERR_FAILED' in e))]
 print('  dialogs:', dialogs); print('  errors:', real or 'none')
 sys.exit(1 if real else 0)

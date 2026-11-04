@@ -16,6 +16,10 @@ a{color:var(--accent)}
 
 /* top bar */
 header.bar{display:flex;align-items:center;gap:6px;min-height:56px;padding:8px 10px 8px 14px;background:var(--surface);border-bottom:1px solid var(--line);position:relative;z-index:2}
+/* Connection status, under the header: only shown while mail can't arrive (and briefly once it can again). */
+.netbar{display:flex;align-items:center;justify-content:center;gap:12px;padding:7px 14px;font-size:13px;font-weight:600;background:var(--warn-soft);color:#7a3e05;border-bottom:1px solid var(--line);position:relative;z-index:1}
+.netbar.ok{background:var(--accent-soft);color:#0b4f44}
+.netbar button{background:none;border:0;padding:4px 2px;font:inherit;color:inherit;text-decoration:underline;cursor:pointer;min-height:32px}
 header.bar h1{flex:1;margin:0;font-size:17px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:10px}
 header.bar h1 .sub{display:block;font-size:12px;font-weight:500;color:var(--muted)}
 .brand-dot{width:26px;height:26px;border-radius:8px;background:var(--accent);display:grid;place-items:center;flex:none}

@@ -147,9 +147,9 @@ if [ "$E2E" = 1 ]; then
   fi
   LOGAT=$(wc -l < "$TMP/server.log")
   BASE="$BASE" JOIN="$JOIN" python3 tests/e2e.py
-  if [ "$IMPL" != go ]; then
-    # PHP's server logs every request line, like a host's access log: the app's deliveries
-    # must not put anyone's mailbox in it.
+  if [ "$IMPL" = phpfile ]; then
+    # Without a router script, PHP's server logs every request line, like a host's access
+    # log: the app's deliveries must not put anyone's mailbox in it.
     sent=$(tail -n +"$((LOGAT + 1))" "$TMP/server.log" | grep -c 'a=send' || true)
     leaked=$(tail -n +"$((LOGAT + 1))" "$TMP/server.log" | grep -c 'box=' || true)
     [ "$sent" -gt 0 ] && [ "$leaked" = 0 ] && echo "  ok   access log: $sent deliveries, no mailbox in any request line" \
