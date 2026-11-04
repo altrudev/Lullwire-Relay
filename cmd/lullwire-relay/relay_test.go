@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -770,5 +771,54 @@ func TestStaticBlockIgnoresCase(t *testing.T) {
 		if rec, _ := do(h, call{method: "GET", url: p}); rec.Code != 404 {
 			t.Errorf("%s served with %d", p, rec.Code)
 		}
+	}
+}
+
+// send carries the mailbox in the body, so it never appears in a request line or access log.
+func TestSendMailboxInBody(t *testing.T) {
+	_, h := newTestRelay(t, false)
+	s := secret(41)
+	box := boxOf(s)
+	if rec, _ := do(h, call{url: "/relay.php?a=send", body: box + blob(100)}); rec.Code != 200 {
+		t.Fatalf("send = %d %s", rec.Code, rec.Body)
+	}
+	rec, _ := do(h, call{url: "/relay.php?a=get", body: `{"s":"` + s + `"}`})
+	var items []map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &items)
+	if len(items) != 1 {
+		t.Fatalf("get after send: %s", rec.Body)
+	}
+	if d, _ := base64.StdEncoding.DecodeString(items[0]["d"]); string(d) != blob(100) {
+		t.Fatalf("stored envelope must be the body without the mailbox, got %q", d)
+	}
+	for _, c := range []struct {
+		call call
+		code int
+		msg  string
+	}{
+		{call{url: "/relay.php?a=send", body: strings.ToUpper(box) + blob(100)}, 400, "bad box"},
+		{call{url: "/relay.php?a=send", body: box[:20]}, 400, "bad box"},
+		{call{url: "/relay.php?a=send&box=" + box, body: box + blob(100)}, 400, "bad box"},
+		{call{url: "/relay.php?a=send", body: box + blob(80)}, 413, "bad size"},
+		{call{url: "/relay.php?a=send", body: box + blob(maxBlob+1)}, 413, "bad size"},
+	} {
+		rec, out := do(h, c.call)
+		if rec.Code != c.code || out["error"] != c.msg {
+			t.Errorf("%s (%d-byte body): got %d %v, want %d %s", c.call.url, len(c.call.body), rec.Code, out, c.code, c.msg)
+		}
+	}
+}
+
+func TestSendInviteOnly(t *testing.T) {
+	r, h := newTestRelay(t, false)
+	r.SetJoinCode("open sesame")
+	s := secret(42)
+	box := boxOf(s)
+	if rec, _ := do(h, call{url: "/relay.php?a=send", body: box + blob(100)}); rec.Code != 404 {
+		t.Errorf("send to non-member = %d", rec.Code)
+	}
+	do(h, call{url: "/relay.php?a=join", body: `{"s":"` + s + `","code":"open sesame"}`})
+	if rec, _ := do(h, call{url: "/relay.php?a=send", body: box + blob(100)}); rec.Code != 200 {
+		t.Errorf("send to member = %d", rec.Code)
 	}
 }

@@ -441,8 +441,10 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	switch a := q.Get("a"); a {
 	case "info": // what the app needs to know before signing up
 		writeJSON(w, http.StatusOK, map[string]any{"v": 2, "invite": r.inviteOnly(), "calls": true, "mail": true})
-	case "put":
+	case "put": // LEGACY: the mailbox in the URL, where access logs record it (apps before 0.6.1)
 		r.put(w, req, q.Get("box"))
+	case "send": // the mailbox leads the body, so no log or proxy sees it
+		r.sendBody(w, req)
 	case "rput", "rget", "rdel":
 		r.slot(w, req, a)
 	default:
@@ -526,6 +528,26 @@ func (r *Relay) put(w http.ResponseWriter, req *http.Request, box string) {
 		fail(w, 400, "bad box")
 		return
 	}
+	r.putEnvelope(w, req, box)
+}
+
+// sendBody is put with the mailbox as the first 32 bytes of the body (lower-case hex)
+// instead of in the URL: request lines end up in access logs, bodies don't.
+func (r *Relay) sendBody(w http.ResponseWriter, req *http.Request) {
+	if req.URL.Query().Has("box") {
+		fail(w, 400, "bad box") // never both: a mailbox in the URL is what send exists to avoid
+		return
+	}
+	head := make([]byte, 32)
+	if _, err := io.ReadFull(req.Body, head); err != nil || !isHex(string(head), 32) {
+		fail(w, 400, "bad box")
+		return
+	}
+	r.putEnvelope(w, req, string(head))
+}
+
+// putEnvelope stores one envelope (the rest of the body) in box.
+func (r *Relay) putEnvelope(w http.ResponseWriter, req *http.Request, box string) {
 	if code, msg := r.admitPut(req, box); code != 0 {
 		fail(w, code, msg)
 		return

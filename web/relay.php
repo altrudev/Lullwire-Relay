@@ -161,12 +161,23 @@ if (mt_rand(1, 200) === 1) sweep();
 $a = is_string($_GET['a'] ?? null) ? $_GET['a'] : '';
 
 // --- deliver a blob to someone's box ---------------------------------------
-if ($a === 'put') {
-    $box = hexval($_GET['box'] ?? null, 32);
+// "send" carries the mailbox as the first 32 bytes of the body instead of in the URL,
+// because request lines end up in access logs and bodies don't. "put" is the LEGACY
+// form (apps before 0.6.1) with ?box= in the URL.
+if ($a === 'put' || $a === 'send') {
+    if ($a === 'send') {
+        if (isset($_GET['box'])) fail(400, 'bad box');
+        $raw = file_get_contents('php://input', false, null, 0, 32 + MAX_BLOB + 1);
+        $box = $raw === false ? null : hexval(substr($raw, 0, 32), 32);
+        $body = $raw === false ? false : (string)substr($raw, 32);
+    } else {
+        $box = hexval($_GET['box'] ?? null, 32);
+        $body = null;
+    }
     if ($box === null) fail(400, 'bad box');
     if (!rate('put', 60, PUTS_PER_MIN)) fail(429, 'slow down');
     if (!disk_ok()) fail(507, 'relay storage full');
-    $body = file_get_contents('php://input', false, null, 0, MAX_BLOB + 1);
+    if ($body === null) $body = file_get_contents('php://input', false, null, 0, MAX_BLOB + 1);
     if ($body === false || strlen($body) < MIN_BLOB || strlen($body) > MAX_BLOB) fail(413, 'bad size');
     $dir = DATA . '/' . $box;
     if (!is_dir($dir)) @mkdir($dir, 0700);

@@ -145,7 +145,16 @@ if [ "$E2E" = 1 ]; then
   else
     rm -rf "${LULLWIRE_DATA:-$TMP/home/lullwire-relay-data}/limits"
   fi
+  LOGAT=$(wc -l < "$TMP/server.log")
   BASE="$BASE" JOIN="$JOIN" python3 tests/e2e.py
+  if [ "$IMPL" != go ]; then
+    # PHP's server logs every request line, like a host's access log: the app's deliveries
+    # must not put anyone's mailbox in it.
+    sent=$(tail -n +"$((LOGAT + 1))" "$TMP/server.log" | grep -c 'a=send' || true)
+    leaked=$(tail -n +"$((LOGAT + 1))" "$TMP/server.log" | grep -c 'box=' || true)
+    [ "$sent" -gt 0 ] && [ "$leaked" = 0 ] && echo "  ok   access log: $sent deliveries, no mailbox in any request line" \
+      || { echo "  FAIL access log: $sent sends, $leaked request lines with a mailbox"; exit 1; }
+  fi
   if [ "$IMPL" = go ]; then
     echo "== signed releases (service worker)"
     go build -o "$TMP/lwr" ./cmd/lullwire-release

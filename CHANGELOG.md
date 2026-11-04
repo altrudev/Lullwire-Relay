@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 (2026-11-04): one-file hosting, mailbox ids out of access logs
+- **Single-file edition for web hosting:** `lullwire-relay.php` holds the app and the lite relay in one file. Upload it to any PHP host with HTTPS and open it; mail is kept above the public web folder when the host allows it. Built by `lullwire-release php` and `scripts/build-release.sh`
+- **Mailbox ids no longer appear in URLs:** the app delivers with a new `send` action that carries the recipient's mailbox inside the request body instead of `?box=` in the address, so web server access logs (and hosts that keep them) can't link a sender's IP to a recipient's mailbox. Both relays still accept the old `put` for earlier apps, and the app falls back to it, once per relay, for relays older than 0.6.1
+- `lullwire-relay init`: the "just testing" choice now says nobody else can reach it, and points to the single file for people without a domain or server
+- `scripts/build-release.sh` refuses to sign files in `web/` that aren't committed
+- Tests: `tests/run.sh --php-file` runs the whole suite against the single file in a mock hosting account; browser runs on PHP check the access log holds no mailbox; Android device test waits for each WebView instead of fixed sleeps
+
 ## 0.6.0 (2026-11-02): Lullwire Relay
 - **New name: Lullwire Relay** (formerly Hush Relay). Binary `lullwire-relay`, Android package `dev.altru.lullwire` (installs next to Hush Relay; move your profile across with "From my other device"), `LULLWIRE_*` settings. Hush Relay 0.5 apps keep working with Lullwire: messages, calls, backups and 6-word recovery are compatible, and `HUSH_*` settings and old data folders are still read
 - **Protocol v4**

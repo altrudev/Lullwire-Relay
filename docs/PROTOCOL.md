@@ -79,7 +79,8 @@ Message bodies are JSON with an authenticated timestamp: `{t: "msg", id, txt, ts
 
 | Action | Request | Result |
 |---|---|---|
-| `?a=put&box=<32hex>` | raw envelope bytes (93 bytes to 512 KiB) | `{ok}`; at most 500 pending per box |
+| `?a=send` | the recipient's box (32 lower-case hex characters), then the raw envelope bytes (93 bytes to 512 KiB) | `{ok}`; at most 500 pending per box. The box travels in the body so it never appears in a request line or access log |
+| `?a=put&box=<32hex>` | raw envelope bytes | LEGACY (apps before 0.6.1): like `send`, with the box in the URL. Clients that get `400 bad action` or `bad s` for `send` from an older relay fall back to it |
 | `?a=get&wait=<0..20>` | `{"s": secret}` | `[{id, d: base64}]`, waiting up to `wait` seconds for mail |
 | `?a=ack` | `{"s": secret, "ids": [...]}` | deletes delivered mail |
 | `?a=rput` | `{"l": 32hex, "t": 64hex, "d": b64url}` | stores a recovery slot; an existing slot needs the same `t` |

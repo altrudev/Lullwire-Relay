@@ -55,10 +55,32 @@ async function ratchet(){
  const RA=await H.importBackup(bk,'correct horse battery'); ok(RA.me.pub===A.pub&&RA.contacts[0].verified,'backup restores identity');
  const raB=view(B.pub); const rs=await recv(B,bBook,await encryptFor(RA.me,raB,{t:'reset'})); ok(rs.msg.t==='reset','reset after restore');
  x=await recv(RA.me,{[B.pub]:raB},await encryptFor(B,bBook[A.pub],{txt:'welcome back'})); ok(x.msg.txt==='welcome back','restored device receives');
- // 11. real relay round trip
- await fetch(R+'?a=put&box='+B.box,{method:'POST',body:await encryptFor(A,aB,{txt:'via relay'})});
- const items=await (await fetch(R+'?a=get',{method:'POST',body:JSON.stringify({s:B.secret})})).json();
+ // 11. real relay round trip: the app's delivery ("send": the mailbox in the body, not the URL)
+ const seen=[]; const realFetch=global.fetch;
+ global.fetch=(u,o)=>{ seen.push(String(u)); return realFetch(u,o); };
+ const sr=await H.postMail(R,B.box,await encryptFor(A,aB,{txt:'via relay'}));
+ global.fetch=realFetch;
+ ok(sr.ok && seen.length===1 && /[?&]a=send$/.test(seen[0]) && !seen[0].includes(B.box),'delivery keeps the mailbox out of the URL ('+seen[0].replace(/^.*\?/,'?')+')');
+ let items=await (await fetch(R+'?a=get',{method:'POST',body:JSON.stringify({s:B.secret})})).json();
  ok((await recv(B,bBook,Uint8Array.from(atob(items[0].d),c=>c.charCodeAt(0)))).msg.txt==='via relay','relay round trip');
+ await post('ack',{s:B.secret,ids:items.map(i=>i.id)});
+ // LEGACY: "put" with ?box= still works for apps before 0.6.1.
+ await fetch(R+'?a=put&box='+B.box,{method:'POST',body:await encryptFor(A,aB,{txt:'old app'})});
+ items=await (await fetch(R+'?a=get',{method:'POST',body:JSON.stringify({s:B.secret})})).json();
+ ok(items.length===1 && (await recv(B,bBook,Uint8Array.from(atob(items[0].d),c=>c.charCodeAt(0)))).msg.txt==='old app','legacy put still delivers');
+ await post('ack',{s:B.secret,ids:items.map(i=>i.id)});
+ // Against a relay that predates "send" (answers 400 bad action / bad s), the app falls back to put once per relay.
+ for(const [name,err] of [['PHP','bad action'],['Go','bad s']]){
+  const old='https://old-'+name.toLowerCase()+'.example/relay.php', calls=[];
+  global.fetch=async(u)=>{ calls.push(String(u)); return /a=send/.test(u)?new Response(JSON.stringify({error:err}),{status:400}):new Response('{"ok":true}'); };
+  const r1=await H.postMail(old,B.box,new Uint8Array(200)), r2=await H.postMail(old,B.box,new Uint8Array(200));
+  global.fetch=realFetch;
+  ok(r1.ok && r2.ok && calls.length===3 && /a=send/.test(calls[0]) && calls.slice(1).every(u=>u.endsWith('?a=put&box='+B.box)),'older '+name+' relay: falls back to put, and remembers it');
+ }
+ // A real refusal from a current relay is not mistaken for an old relay.
+ { const calls=[]; global.fetch=async(u)=>{ calls.push(String(u)); return new Response(JSON.stringify({error:'box full'}),{status:429}); };
+   const r=await H.postMail('https://busy.example/relay.php',B.box,new Uint8Array(200)); global.fetch=realFetch;
+   ok(r.status===429 && calls.length===1,'a busy relay is not retried with the mailbox in the URL'); }
  }
 async function relayAndRecovery(){
 
@@ -161,6 +183,13 @@ async function auditRegressions(){
   ok(Date.now()-t0<5000,'empty mailbox long-poll capped ('+(Date.now()-t0)+'ms)');
   // Finding 4: too-small envelopes refused.
   ok((await post('put',new Uint8Array(80),'&box='+B.box)).status===413,'undersized envelope refused');
+  // "send": the mailbox must be the body's first 32 bytes, lower-case hex, and never also in the URL.
+  const withBox=b=>{ const x=new Uint8Array(b.length+200); x.set(new TextEncoder().encode(b)); return x; };
+  ok((await post('send',withBox(B.box.toUpperCase()))).status===400,'send: upper-case mailbox refused');
+  ok((await post('send',withBox('zz'+B.box.slice(2)))).status===400,'send: non-hex mailbox refused');
+  ok((await post('send',new TextEncoder().encode(B.box.slice(0,20)))).status===400,'send: short body refused');
+  ok((await post('send',withBox(B.box),'&box='+B.box)).status===400,'send: mailbox in the URL as well refused');
+  { const x=new Uint8Array(32+80); x.set(new TextEncoder().encode(B.box)); ok((await post('send',x)).status===413,'send: undersized envelope refused'); }
   // (live-connection limits are tested with parallel curl in tests/run.sh)
 
   // A large contact list still fits the recovery slot and link transfer.

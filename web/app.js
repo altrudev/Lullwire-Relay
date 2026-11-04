@@ -486,12 +486,29 @@ async function wrapWithPass(mk, pass) {
 }
 const unwrapWithPass = async (hdr, pass) => aesDec(await passKey(pass, b64d(hdr.salt)), b64d(hdr.w), enc.encode('lullwire/vault/pass'));
 
+// ---------- delivery over HTTPS ----------
+// The mailbox leads the body ("send"), so web server access logs never record who gets
+// mail. LEGACY: relays before 0.6.1 only know "put", with the mailbox in the URL; they
+// answer "send" with 400 "bad action" (PHP) or "bad s" (Go), and are remembered.
+const putOnly = new Set();
+async function postMail(relay, box, body) {
+  const headers = { 'Content-Type': 'text/plain' };
+  if (!putOnly.has(relay)) {
+    const r = await fetch(relay + '?a=send', { method: 'POST', headers, body: concat(enc.encode(box), body) });
+    if (r.status !== 400) return r;
+    const e = await r.clone().json().catch(() => ({}));
+    if (e.error !== 'bad action' && e.error !== 'bad s') return r;
+    putOnly.add(relay);
+  }
+  return fetch(relay + '?a=put&box=' + box, { method: 'POST', headers, body });
+}
+
 if (typeof module !== 'undefined') module.exports = {
   newIdentity, keysFromJwk, encryptFor, decryptFrom, sealOuter, openOuter, genKP, safetyNumber, contactId, pad,
   rotatePrekeys, makeCard, checkCard, takeCard, usablePrekey, SPK_ROTATE, SPK_USE, SPK_KEEP,
   BACKUP_CONTACTS, backupData, restoreData, exportBackup, importBackup, openBackup, genWords, normWords, recoveryKeys, sealRecovery, openRecovery,
   linkCode, isRelay, b64e, b64d, hex, rand, sha,
-  vaultKeys, blindId, pack, unpack, sealRecord, openRecord, wrapWithPass, unwrapWithPass
+  vaultKeys, blindId, pack, unpack, sealRecord, openRecord, wrapWithPass, unwrapWithPass, postMail
 };
 
 // ---------- storage: an encrypted vault in IndexedDB ----------
@@ -1041,7 +1058,7 @@ if (typeof document !== 'undefined') (() => {
       const ok = await sendFrame(1, hexBytes(c.box), blob);
       if (ok !== null) return ok; // no answer: send it again over HTTPS (a duplicate is refused by the ratchet)
     }
-    const r = await fetch(c.relay + '?a=put&box=' + c.box, { method: 'POST', headers: TP, body: blob });
+    const r = await postMail(c.relay, c.box, blob);
     return r.ok;
   }
   // The send connection: no identity, just deliveries (and cover traffic) with answers.
@@ -1388,8 +1405,8 @@ if (typeof document !== 'undefined') (() => {
           catch (e) { alert('Could not sign in: ' + e.message); show('vSetup'); return; }
           if (bundle.ack && isRelay(bundle.ack.r) && isBox(bundle.ack.b))
             // The acknowledgement carries the secret nonce from the sealed bundle, so a relay can't fake it.
-            fetch(bundle.ack.r + '?a=put&box=' + bundle.ack.b, { method: 'POST', headers: TP,
-              body: isHex(bundle.ack.n, 64) ? new Uint8Array([...hexBytes(bundle.ack.n), ...rand(64)]) : rand(96) }).catch(() => {});
+            postMail(bundle.ack.r, bundle.ack.b,
+              isHex(bundle.ack.n, 64) ? new Uint8Array([...hexBytes(bundle.ack.n), ...rand(64)]) : rand(96)).catch(() => {});
           return;
         }
       } catch { await sleep(3000); }
@@ -1425,7 +1442,7 @@ if (typeof document !== 'undefined') (() => {
       }
       const ackNonce = hex(rand(32));
       const sealed = { t: 'link', data: await bundle(), ack: { r: me.relay, b: ackBox, n: ackNonce } };
-      const r = await fetch(o.r + '?a=put&box=' + o.b, { method: 'POST', headers: TP, body: await sealOuter(sealed, o.e) });
+      const r = await postMail(o.r, o.b, await sealOuter(sealed, o.e));
       if (!r.ok) throw new Error('the relay refused it (' + r.status + ')');
       toast('Waiting for the new device to confirm…', 0);
       const until = Date.now() + 120000;
