@@ -5,7 +5,7 @@ joining from an invite link (invite-only relay), adding a contact by QR picture,
 live chat, verifying a safety code, recovery words, moving a profile by QR,
 recovering on another device, and (on relays that support it) an encrypted
 video call with simulated cameras."""
-import os, sys, tempfile, time
+import hashlib, os, sys, tempfile, time, zlib, struct
 from playwright.sync_api import sync_playwright
 
 U = os.environ.get('BASE', 'http://localhost:8099/index.html')
@@ -122,6 +122,34 @@ with sync_playwright() as pw:
         if back > 4: errs.append('Retry took %.1fs' % back)
     else:
         print('3c relay unreachable: skipped (live connection relay)')
+
+    # 3d. Files: Bob sends Alice a photo and a document. Both arrive whole (same SHA-256),
+    # the photo shows a preview, and Save hands Alice the exact bytes.
+    def png(w, h):
+        rows = b''.join(b'\x00' + b''.join(bytes([(x * 9) % 256, (y * 5) % 256, 160]) for x in range(w)) for y in range(h))
+        chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+        return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
+    photo, doc = png(320, 200), os.urandom(1024 * 1024 + 4321)
+    files = {'photo.png': photo, 'notes.bin': doc}
+    for name, data in files.items():
+        with open(S + name, 'wb') as f: f.write(data)
+    chat_with(A, 'Bob')
+    t = time.time()
+    for name in files:
+        B.set_input_files('#fileIn', S + name)
+        B.wait_for_selector('.m.out .file:has-text("%s"):has-text("sent")' % name, timeout=60000)
+    for name in files:
+        A.wait_for_selector('.m.in .file:has-text("%s"):has-text("received")' % name, timeout=60000)
+    took = time.time() - t
+    got = {f['name']: f for f in A.evaluate("window.__lullwireFiles()")}
+    same = all(got.get(n, {}).get('sha') == hashlib.sha256(d).hexdigest() and got[n]['state'] == 'done' for n, d in files.items())
+    A.wait_for_function("(() => { const i = document.querySelector('.m.in .file-img'); return i && i.naturalWidth === 320; })()", timeout=15000)
+    with A.expect_download() as dl:
+        A.click('.m.in .file:has-text("notes.bin") .file-save')
+    saved = open(dl.value.path(), 'rb').read()
+    print('3d files: photo and 1 MB document in %.1fs | identical on arrival: %s | photo preview shown | Save gives the same bytes: %s' % (took, same, saved == doc))
+    if not same: errs.append('received files differ: %s' % got)
+    if saved != doc: errs.append('saved file differs from the one sent')
 
     # 4. Verify the safety code.
     A.click('#trustBar'); A.wait_for_selector('#vSafety:not([hidden])')

@@ -34,6 +34,7 @@ public class MainActivity extends Activity {
     PermissionRequest pendingPermission;
     ValueCallback<Uri[]> pendingFiles;
     String pendingSave;
+    byte[] pendingBytes;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -168,7 +169,20 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    void saveBytes(String name, String type, String data) {
+        try {
+            pendingBytes = android.util.Base64.decode(data, android.util.Base64.URL_SAFE | android.util.Base64.NO_PADDING | android.util.Base64.NO_WRAP);
+        } catch (IllegalArgumentException e) {
+            Toast.makeText(this, "Could not save the file", Toast.LENGTH_LONG).show(); return;
+        }
+        pendingSave = null;
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType(type == null || type.isEmpty() ? "application/octet-stream" : type).putExtra(Intent.EXTRA_TITLE, name);
+        startActivityForResult(i, REQ_SAVE);
+    }
+
     void saveFile(String name, String text) {
+        pendingBytes = null;
         pendingSave = text;
         Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                 .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, name);
@@ -180,6 +194,15 @@ public class MainActivity extends Activity {
         if (code == REQ_FILE && pendingFiles != null) {
             pendingFiles.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result, data));
             pendingFiles = null;
+        } else if (code == REQ_SAVE && pendingBytes != null) {
+            byte[] bytes = pendingBytes; pendingBytes = null;
+            if (result != RESULT_OK || data == null || data.getData() == null) return;
+            try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
+                out.write(bytes);
+                Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "Could not save the file", Toast.LENGTH_LONG).show();
+            }
         } else if (code == REQ_SAVE) {
             String text = pendingSave; pendingSave = null;
             if (result != RESULT_OK || data == null || data.getData() == null || text == null) return;

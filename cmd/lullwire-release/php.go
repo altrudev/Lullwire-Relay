@@ -96,8 +96,14 @@ const phpRouter = `<?php
 // most shared hosts), then open https://your-site/<this file's name>/ in a browser and
 // create your profile there. Invites you make carry your relay's address.
 //
-// It keeps mail in a folder named lullwire-relay-data, outside your public web folder
+// It keeps mail in a folder named after this file (lullwire-relay-data for
+// lullwire-relay.php, k7q4mxp2-data for k7q4mxp2.php), outside your public web folder
 // when the host allows it (otherwise next to this file, locked with .htaccess).
+//
+// To make it hard to find, rename this file to something random before you first use
+// it (for example k7q4mxp2ab.php): only people with your invites know the address, and
+// nothing in the address or the data folder's name says what it is. Rename it later and
+// it starts with an empty data folder unless you rename that folder to match.
 // Voice and video calls need the Go relay (lullwire-relay); see docs/SELF-HOSTING.md.
 //
 // Copyright (C) 2026 Valentyn Rukhaylo (ALTRU.dev)
@@ -116,15 +122,18 @@ const phpRouter = `<?php
     // The relay API: fall through to relay.php below, with a safe data folder.
     if ($sub === '/relay.php' || $sub === '/relay') {
         if (!defined('LULLWIRE_DATA') && !getenv('LULLWIRE_DATA') && !getenv('HUSH_DATA') && !is_file(__DIR__ . '/relay.config.php')) {
+            // Named after this file, so a renamed (hidden) copy doesn't announce itself.
+            $base = preg_replace('/[^A-Za-z0-9_-]/', '_', basename(__FILE__, '.php'));
+            $dataName = ($base === '' ? 'relay' : $base) . '-data';
             // Prefer the folder above the public web folder (the hosting account's home on
             // cPanel), so mail never sits under the web root at all.
             $web = realpath((string)($_SERVER['DOCUMENT_ROOT'] ?? '')) ?: __DIR__;
             $up = dirname($web);
-            $outside = $up . '/lullwire-relay-data';
+            $outside = $up . '/' . $dataName;
             $here = realpath(__DIR__) ?: __DIR__;
             $usable = $up !== '/' && $up !== $web && strpos($here . '/', $up . '/') === 0 &&
                 (@is_dir($outside) || (@is_dir($up) && @is_writable($up)));
-            define('LULLWIRE_DATA', $usable ? $outside : __DIR__ . '/lullwire-relay-data');
+            define('LULLWIRE_DATA', $usable ? $outside : __DIR__ . '/' . $dataName);
         }
         return;
     }

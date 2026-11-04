@@ -486,6 +486,33 @@ async function wrapWithPass(mk, pass) {
 }
 const unwrapWithPass = async (hdr, pass) => aesDec(await passKey(pass, b64d(hdr.salt)), b64d(hdr.w), enc.encode('lullwire/vault/pass'));
 
+// ---------- files ----------
+// A file travels as pieces of 192 KiB, each an ordinary end-to-end encrypted message
+// ({t:'file', id, i, n, size, name, type, h, d}), so relays carry it like chat: sealed,
+// padded, and kept until the recipient collects it. h is SHA-256 of the whole file,
+// checked once every piece is in. 16 MiB at most: relays keep 48 MiB per mailbox.
+const FILE_CHUNK = 192 * 1024, MAX_FILE = 16 * 1024 * 1024;
+const fileChunkCount = size => Math.max(1, Math.ceil(size / FILE_CHUNK));
+// A name to show and save under: no folders, control characters or leading dots.
+const fileName = s => String(s || '').replace(/[\u0000-\u001f\u007f/\\]/g, '_').replace(/^\.+/, '_').slice(0, 120) || 'file';
+const fileType = s => typeof s === 'string' && s.length <= 100 && /^[a-z0-9][\w.+-]*\/[\w.+-]+$/i.test(s) ? s.toLowerCase() : 'application/octet-stream';
+// The pieces of a file, as the messages that carry them.
+function filePieces(bytes, meta) {
+  const n = fileChunkCount(bytes.length), out = [];
+  for (let i = 0; i < n; i++) out.push({ t: 'file', id: meta.id, i, n, size: bytes.length, name: meta.name, type: meta.type, h: meta.h, d: b64e(bytes.subarray(i * FILE_CHUNK, (i + 1) * FILE_CHUNK)) });
+  return out;
+}
+// Checks one received piece; null if anything about it is off.
+function checkFilePiece(m) {
+  if (!m || m.t !== 'file' || typeof m.id !== 'string' || !/^[0-9a-f]{16}$/.test(m.id) || typeof m.h !== 'string' || !/^[0-9a-f]{64}$/.test(m.h)) return null;
+  if (!Number.isInteger(m.size) || m.size < 0 || m.size > MAX_FILE) return null;
+  const n = fileChunkCount(m.size);
+  if (m.n !== n || !Number.isInteger(m.i) || m.i < 0 || m.i >= n || typeof m.d !== 'string') return null;
+  let d; try { d = b64d(m.d); } catch { return null; }
+  if (d.length !== (m.i < n - 1 ? FILE_CHUNK : m.size - FILE_CHUNK * (n - 1))) return null;
+  return { id: m.id, i: m.i, n, size: m.size, h: m.h, name: fileName(m.name), type: fileType(m.type), d };
+}
+
 // ---------- delivery over HTTPS ----------
 // The mailbox leads the body ("send"), so web server access logs never record who gets
 // mail. LEGACY: relays before 0.6.1 only know "put", with the mailbox in the URL; they
@@ -508,7 +535,8 @@ if (typeof module !== 'undefined') module.exports = {
   rotatePrekeys, makeCard, checkCard, takeCard, usablePrekey, SPK_ROTATE, SPK_USE, SPK_KEEP,
   BACKUP_CONTACTS, backupData, restoreData, exportBackup, importBackup, openBackup, genWords, normWords, recoveryKeys, sealRecovery, openRecovery,
   linkCode, isRelay, b64e, b64d, hex, rand, sha,
-  vaultKeys, blindId, pack, unpack, sealRecord, openRecord, wrapWithPass, unwrapWithPass, postMail
+  vaultKeys, blindId, pack, unpack, sealRecord, openRecord, wrapWithPass, unwrapWithPass, postMail,
+  FILE_CHUNK, MAX_FILE, filePieces, checkFilePiece, fileName, fileType
 };
 
 // ---------- storage: an encrypted vault in IndexedDB ----------
@@ -517,21 +545,24 @@ if (typeof module !== 'undefined') module.exports = {
 // plaintext store of 0.5 and earlier; it is migrated once and then deleted.
 const DB_NAME = 'lullwire';
 let db = null, vk = null, vaultHdr = null, mkRaw = null;
-function openDB(name, upgrade) {
+function openDB(name, upgrade, version = 1) {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(name, 1);
+    const r = indexedDB.open(name, version);
     r.onupgradeneeded = e => { if (!upgrade(r.result, e.oldVersion, r.transaction)) r.transaction.abort(); };
     r.onsuccess = () => res(r.result);
     r.onerror = () => { r.error && r.error.name === 'AbortError' ? res(null) : rej(r.error); };
   });
 }
-const openVaultDB = () => openDB(DB_NAME, d => {
-  d.createObjectStore('meta');
-  d.createObjectStore('kv');
-  d.createObjectStore('contacts', { keyPath: 'id' });
-  d.createObjectStore('messages', { keyPath: 'id', autoIncrement: true }).createIndex('cid', ['c', 'id']);
+const openVaultDB = () => openDB(DB_NAME, (d, oldVersion) => {
+  if (oldVersion < 1) {
+    d.createObjectStore('meta');
+    d.createObjectStore('kv');
+    d.createObjectStore('contacts', { keyPath: 'id' });
+    d.createObjectStore('messages', { keyPath: 'id', autoIncrement: true }).createIndex('cid', ['c', 'id']);
+  }
+  if (oldVersion < 2) d.createObjectStore('files'); // version 2 (0.7): file pieces
   return true;
-});
+}, 2);
 // Opens the 0.5 store only if it exists (never creates it).
 const openLegacyDB = () => openDB('hush2', (d, oldVersion) => oldVersion > 0);
 function txOn(d, store, mode, fn) {
@@ -573,12 +604,31 @@ async function loadContacts() {
 }
 async function dropContact(id) {
   const b = await blindOf(id);
+  try { for (const m of (await messagesFor(id, 1e6)).list) if (m.file && m.file.sid) await dropPieces(m.file.sid); }
+  catch (e) { console.warn('file cleanup', e); }
   await queued('c|' + id, () => tx('contacts', 'readwrite', s => s.delete(b)));
   await tx('messages', 'readwrite', s => {
     const req = s.index('cid').openKeyCursor(IDBKeyRange.bound([b, 0], [b, Infinity]));
     req.onsuccess = () => { const cur = req.result; if (cur) { s.delete(cur.primaryKey); cur.continue(); } };
   });
 }
+// File pieces: stored under a local id (sid), each encrypted with the file's own key
+// (fk), which lives in the file's message record inside the vault.
+const pieceAD = (f, i) => enc.encode('lullwire/file|' + f.sid + '|' + i);
+async function putPiece(f, i, bytes) {
+  const ct = await aesEnc(f.fk, bytes, pieceAD(f, i));
+  return tx('files', 'readwrite', s => s.put(ct, f.sid + '|' + i));
+}
+async function getPiece(f, i) {
+  const ct = await tx('files', 'readonly', s => s.get(f.sid + '|' + i));
+  return ct ? aesDec(f.fk, u8(ct), pieceAD(f, i)) : null;
+}
+async function fileBytes(f) {
+  const parts = [];
+  for (let i = 0; i < f.n; i++) { const p = await getPiece(f, i); if (!p) return null; parts.push(p); }
+  return concat(...parts);
+}
+const dropPieces = sid => tx('files', 'readwrite', s => s.delete(IDBKeyRange.bound(sid + '|', sid + '|\uffff')));
 async function putMessage(m) {
   const c = await blindOf(m.contact), { id, ...rest } = m;
   const rec = { c, d: await sealRecord(vk, 'messages|' + c, rest) };
@@ -919,14 +969,14 @@ if (typeof document !== 'undefined') (() => {
     }
     for (const m of list) {
       const li = document.createElement('li');
-      li.className = 'm ' + m.dir + (m.state === 'failed' ? ' failed' : '');
-      li.textContent = m.txt;
+      li.className = 'm ' + m.dir + (m.state === 'failed' ? ' failed' : '') + (m.file ? ' has-file' : '');
+      if (m.file) li.append(fileView(m)); else li.textContent = m.txt;
       if (m.dir !== 'sys') {
         const s = document.createElement('small');
-        s.textContent = fmtTime(m.ts) + (m.dir === 'out' ? ' · ' + (m.state === 'failed' ? 'not sent, tap to retry' : m.state) : '');
+        s.textContent = fmtTime(m.ts) + (m.dir === 'out' && !m.file ? ' · ' + (m.state === 'failed' ? 'not sent, tap to retry' : m.state) : '');
         li.append(s);
       }
-      if (m.state === 'failed') li.onclick = () => deliver(contacts.get(m.contact), m);
+      if (m.state === 'failed') li.onclick = () => (m.file ? deliverFile : deliver)(contacts.get(m.contact), m);
       ol.append(li);
     }
     if (keepPos) { ol.scrollTop = ol.scrollHeight - prevH; keepPos = false; }
@@ -956,6 +1006,105 @@ if (typeof document !== 'undefined') (() => {
     m.id = await putMessage(m);
     await edit(c.id, x => { x.ts = m.ts; x.last = 'You: ' + text.slice(0, 80); });
     await deliver(c, m);
+  }
+
+  // ----- files -----
+  const fmtSize = n => n < 1024 ? n + ' B' : n < 1048576 ? Math.round(n / 1024) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+  const PREVIEW = /^image\/(png|jpeg|gif|webp|avif)$/; // raster images only, shown in an <img>
+  const previews = new Map(); // message id -> object URL
+  function fileView(m) {
+    const f = m.file, box = document.createElement('div'), name = document.createElement('b'), meta = document.createElement('span');
+    box.className = 'file';
+    name.textContent = f.name;
+    const pct = k => Math.floor(100 * (k || 0) / f.n) + '%';
+    meta.textContent = fmtSize(f.size) + ' · ' + (m.dir === 'out'
+      ? (m.state === 'failed' ? 'not sent, tap to retry' : m.state === 'sending' ? 'sending ' + pct(f.done) : 'sent')
+      : m.state === 'receiving' ? 'receiving ' + pct(f.got) : m.state === 'corrupt' ? 'damaged on the way, ask for it again' : 'received');
+    box.append(name, meta);
+    if (m.dir === 'out' || m.state === 'done') {
+      if (PREVIEW.test(f.type)) {
+        const img = document.createElement('img'); img.alt = f.name; img.className = 'file-img';
+        const url = previews.get(m.id);
+        if (url) img.src = url;
+        else fileBytes(f).then(b => { if (!b) return; const u = URL.createObjectURL(new Blob([b], { type: f.type })); previews.set(m.id, u); img.src = u; }).catch(() => {});
+        box.prepend(img);
+      }
+      const save = document.createElement('button');
+      save.type = 'button'; save.className = 'file-save'; save.textContent = 'Save';
+      save.onclick = e => { e.stopPropagation(); saveReceived(f); };
+      box.append(save);
+    }
+    return box;
+  }
+  // Saving never opens the file in the app's own page (a received HTML file could act
+  // as the app): the browser downloads it, Android asks where to keep it.
+  async function saveReceived(f) {
+    const b = await fileBytes(f);
+    if (!b) return alert('This file is no longer on this device.');
+    if (has('saveBytes')) return AND.saveBytes(f.name, f.type, b64e(b));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([b], { type: 'application/octet-stream' }));
+    a.download = f.name; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  }
+  async function sendFile(file) {
+    const c = contacts.get(current); if (!c || !file) return;
+    if (file.size > MAX_FILE) return alert('Files can be up to ' + fmtSize(MAX_FILE) + '. This one is ' + fmtSize(file.size) + '.');
+    if (c.request) { await edit(c.id, x => { x.request = false; }); scheduleSync(); renderTrust(c); show('vChat', c.name, trustLabel(c)); current = c.id; }
+    let bytes;
+    try { bytes = new Uint8Array(await file.arrayBuffer()); } catch { return alert('Could not read that file.'); }
+    const f = { sid: hex(rand(8)), fk: rand(32), id: hex(rand(8)), name: fileName(file.name), type: fileType(file.type),
+      size: bytes.length, n: Math.max(1, Math.ceil(bytes.length / FILE_CHUNK)), h: await sha(bytes), done: 0 };
+    for (let i = 0; i < f.n; i++) await putPiece(f, i, bytes.subarray(i * FILE_CHUNK, (i + 1) * FILE_CHUNK));
+    const m = { contact: c.id, dir: 'out', txt: '\u{1F4CE} ' + f.name, ts: Date.now(), mid: f.id, state: 'sending', file: f };
+    m.id = await putMessage(m);
+    await edit(c.id, x => { x.ts = m.ts; x.last = 'You: \u{1F4CE} ' + f.name; });
+    await deliverFile(c, m);
+  }
+  // Sends the pieces not yet accepted by the relay; a retry picks up where it stopped.
+  async function deliverFile(c, m) {
+    const f = m.file;
+    m.state = 'sending'; await putMessage(m); renderMsgs();
+    try {
+      for (let i = f.done; i < f.n; i++) {
+        const d = await getPiece(f, i);
+        if (!d) throw new Error('piece missing');
+        const ok = await post(c, { t: 'file', id: f.id, i, n: f.n, size: f.size, name: f.name, type: f.type, h: f.h, d: b64e(d), ts: Date.now() });
+        if (!ok) throw new Error('relay refused');
+        f.done = i + 1; await putMessage(m); if (current === c.id) renderMsgs();
+      }
+      m.state = 'sent';
+    } catch (e) { console.warn('file not sent', e); m.state = 'failed'; }
+    await putMessage(m); renderMsgs();
+  }
+  // One received piece. Pieces are kept as they come (in any order); once all are in,
+  // the whole file is checked against its SHA-256.
+  async function receivePiece(c, p) {
+    const key = 'file|' + await blindOf('file:' + c.id + ':' + p.id);
+    let st = await kvGet(key);
+    if (st && st.done) return;
+    if (!st) {
+      const f = { sid: hex(rand(8)), fk: rand(32), id: p.id, name: p.name, type: p.type, size: p.size, n: p.n, h: p.h, got: 0 };
+      const m = { contact: c.id, dir: 'in', txt: '\u{1F4CE} ' + f.name, ts: Date.now(), mid: 'file:' + p.id, state: 'receiving', file: f };
+      m.id = await putMessage(m);
+      st = { m, have: '0'.repeat(p.n) };
+      c.ts = Date.now(); c.last = '\u{1F4CE} ' + f.name;
+      if (current !== c.id) c.unread = (c.unread || 0) + 1;
+      notify('msg', c, '\u{1F4CE} ' + f.name);
+    }
+    const f = st.m.file;
+    if (p.size !== f.size || p.h !== f.h || p.n !== f.n || st.have[p.i] === '1') return; // pieces of one file must agree
+    await putPiece(f, p.i, p.d);
+    st.have = st.have.slice(0, p.i) + '1' + st.have.slice(p.i + 1);
+    f.got = (f.got || 0) + 1;
+    if (f.got === f.n) {
+      const all = await fileBytes(f);
+      st.m.state = all && (await sha(all)) === f.h ? 'done' : 'corrupt';
+      if (st.m.state === 'corrupt') await dropPieces(f.sid);
+      st.done = true;
+    }
+    await putMessage(st.m);
+    await kvSet(key, st);
   }
 
   // ----- notifications (Android app) -----
@@ -1018,6 +1167,9 @@ if (typeof document !== 'undefined') (() => {
         await putMessage({ contact: id, dir: 'sys', ts: Date.now(), txt: msg.why === 'upgrade'
           ? c.name + ' updated their app. Your secure session was renewed.'
           : c.name + ' signed in on a new device. Anything sent to them just before may be lost.' });
+      } else if (msg.t === 'file' && !c.request) {
+        const p = checkFilePiece(msg);
+        if (p) await receivePiece(c, p);
       } else if (/^call/.test(msg.t || '') && !dup) {
         callMsg = { c, msg };
       }
@@ -1662,6 +1814,17 @@ if (typeof document !== 'undefined') (() => {
   };
   $('#wipeBtn').onclick = () => {
     if (confirm('Erase your identity, contacts and messages from this device? Without recovery words or a backup this cannot be undone.')) wipe();
+  };
+  $('#attachBtn').onclick = () => $('#fileIn').click();
+  $('#fileIn').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) sendFile(f); };
+  // For the automated tests: the files in the open chat, with a hash of what is stored.
+  window.__lullwireFiles = async () => {
+    const out = [];
+    for (const m of (await messagesFor(current, 1000)).list) if (m.file) {
+      const b = m.dir === 'out' || m.state === 'done' ? await fileBytes(m.file) : null;
+      out.push({ dir: m.dir, name: m.file.name, size: m.file.size, state: m.state, sha: b ? await sha(b) : null });
+    }
+    return out;
   };
   $('#composer').onsubmit = e => { e.preventDefault(); const t = $('#txt').value; $('#txt').value = ''; $('#txt').style.height = ''; send(t); };
   $('#txt').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !/Android|Mobi/.test(navigator.userAgent)) { e.preventDefault(); $('#composer').requestSubmit(); } };

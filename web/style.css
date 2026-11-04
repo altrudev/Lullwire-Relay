@@ -102,6 +102,15 @@ code,.code{font-family:var(--mono)}
 .m.sys{align-self:center;background:transparent;border:0;color:var(--muted);font-size:12.5px;text-align:center;max-width:90%}
 #composer{display:flex;gap:8px;align-items:flex-end;padding:10px 10px calc(10px + env(safe-area-inset-bottom));background:var(--surface);border-top:1px solid var(--line)}
 #composer textarea{resize:none;max-height:140px;border-radius:22px;padding:10px 16px;min-height:44px}
+.attach{width:44px;height:44px;border-radius:50%;border:0;background:transparent;color:var(--muted);display:grid;place-items:center;flex:none;cursor:pointer}
+.attach:hover{background:var(--surface-2);color:var(--accent)}
+.attach svg{width:22px;height:22px}
+.m.has-file{padding:8px}
+.file{display:flex;flex-direction:column;gap:4px;min-width:180px;max-width:100%}
+.file b{font-weight:600;word-break:break-all}
+.file span{font-size:12.5px;opacity:.85}
+.file-img{display:block;max-width:min(260px,100%);max-height:260px;border-radius:10px;object-fit:cover;background:var(--surface-2)}
+.file-save{align-self:flex-start;margin-top:4px;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid currentColor;background:transparent;color:inherit;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
 .send{width:44px;height:44px;border-radius:50%;border:0;background:var(--accent);color:#fff;display:grid;place-items:center;flex:none}
 .send svg{width:20px;height:20px}
 

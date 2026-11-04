@@ -232,6 +232,13 @@ final class Shell {
             if (a != null) a.runOnUiThread(() -> a.saveFile(name, text));
         }
 
+        /** A received file (base64url): the user picks where it goes. */
+        @JavascriptInterface
+        public void saveBytes(String name, String type, String data) {
+            MainActivity a = activity;
+            if (a != null) a.runOnUiThread(() -> a.saveBytes(name, type, data));
+        }
+
         /** Background mode: keep the connection while the app is closed. */
         @JavascriptInterface
         public void setBackground(boolean on) {

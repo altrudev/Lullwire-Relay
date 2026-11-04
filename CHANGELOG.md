@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0 (2026-11-04): file transfers, hidden single-file setup
+- **Send files** with the paperclip in any chat: photos, documents, anything up to 16 MB. A file travels as pieces of 192 KiB, each an ordinary end-to-end encrypted message, so every relay (Go, PHP, single file) carries it like chat and keeps it until the recipient comes online. The recipient's app checks the whole file against its SHA-256 before showing it. Photos get a preview; **Save** downloads the file (browser) or asks where to keep it (Android). A file that couldn't be sent resumes from the first missing piece
+- Files are stored encrypted on the device, each with its own key kept in the encrypted message record, so changing the app lock never has to re-encrypt them. Deleting a contact deletes their files
+- Files are accepted from contacts only; message requests (strangers) can't fill your storage
+- Relays keep up to **48 MiB** waiting per mailbox (was 8 MiB): room for a 16 MiB file for someone who is offline. Relays older than 0.7 still carry files up to about 8 MB in total waiting at a time
+- **Hidden single-file setup:** rename `lullwire-relay.php` to something random before first use; its data folder takes the same name, so nothing in the address or on the server's disk says what it is
+- Android app: saves received files through the system's "save to" picker
+- Tests: files through the relay (pieces, reassembly, SHA-256, a 16 MiB file waiting for an offline recipient, tampered pieces refused); the browser test sends a photo and a 1 MB document and checks the preview, the bytes and Save; the single-file suite checks a renamed copy
+
 ## 0.6.2 (2026-11-04): connection status and instant reconnect
 - **Connection status bar** under the header instead of a toast: "Connecting…", "Offline. Retrying in N s" with **Retry now**, or "No internet connection", then a brief "Connected". A reconnect that takes under 2.5 seconds isn't shown at all, so switching apps doesn't make it flicker
 - **Reconnects at once** when you come back to the app after 15 seconds or more, when the network returns, when you open a chat, or when you tap Retry, instead of waiting out a retry delay that could reach a minute. A connection a sleeping phone may have left half-dead is replaced

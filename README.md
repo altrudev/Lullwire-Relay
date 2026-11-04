@@ -2,20 +2,45 @@
 
 # Lullwire Relay, formerly Hush Relay
 
-**A small, self-hostable, end-to-end encrypted messenger with voice and video calls. No accounts, no phone numbers, no app store.**
+**A small, end-to-end encrypted messenger with file sharing and voice and video calls, running on a relay you own. No accounts, no phone numbers, no app store, and no company in the middle.**
 
-*Version 0.6 renamed the project; it still talks to Hush Relay 0.5 apps.*
+[**Download**](https://github.com/altrudev/Lullwire-Relay/releases/latest) · [Get started](#get-started) · [Host a relay](docs/SELF-HOSTING.md) · [Security](SECURITY.md) · [Protocol](docs/PROTOCOL.md)
 
-[**Download**](https://github.com/altrudev/Lullwire-Relay/releases/latest) · [Install & use](#install) · [Host a relay](docs/SELF-HOSTING.md) · [Security](SECURITY.md) · [Protocol](docs/PROTOCOL.md)
+## How it works
 
-Lullwire Relay is two pieces:
+Lullwire Relay has two parts:
 
-- **The app** is a web page (a PWA) made of plain HTML and JavaScript. You open it in a browser and can install it to your home screen, or install the **Android app**, which bundles the same code. All encryption happens there.
-- **The relay** is a dumb mailbox. It stores encrypted envelopes until the recipient picks them up, and it can't read them or see who sent them. The main relay is a **single Go binary** with the app built in (standard library only, no dependencies); a **one-file PHP relay** (messages only) remains for shared hosting.
+- **The app**, which everyone uses: a web app that opens in any browser (and installs like an app on phones and computers), or the Android app. All encryption happens on your device; your keys never leave it.
+- **The relay**, which one person hosts for a group: a mailbox at a web address. It holds sealed envelopes until the recipient's app collects them, and carries calls. It can't read messages or files, or see who sent them.
 
-You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi or ordinary shared hosting. With a **private path and a join code** it looks like an ordinary website to everyone except the people you invite, and messages and calls travel as normal HTTPS traffic to your own server. A **Tor onion service** is optional, never required. You can also publish the app on IPFS.
+**The one requirement:** the relay must be at an `https://` address that everyone you invite can reach. That means **web hosting** (upload one file) or **a small server**. A phone or home computer can't be a relay by itself, because home routers and mobile networks block incoming connections. Everyone else only needs the app: your relay's address travels inside your invites.
 
 > ⚠️ **Status: experimental and not independently audited.** The design uses standard building blocks (a Signal-style Double Ratchet on WebCrypto), but it has only had internal adversarial review ([audit log](SECURITY.md#audit-log)), not review by outside cryptographers. Use it for everyday privacy, learning and experiments. **If your safety depends on your messages** (activists, journalists, sources, people facing a hostile government), use [Signal](https://signal.org) or [SimpleX](https://simplex.chat) instead. See [SECURITY.md](SECURITY.md).
+
+## Get started
+
+**To chat** (you were invited): open the invite link. That's all. Then, optionally, install it:
+
+| | How |
+|---|---|
+| **Any browser** (phone or computer) | Open the invite link, pick a name, chat. Use **Install** (or **Add to Home Screen**; on iPhone, in Safari) to keep it like an app. |
+| **Android app** | Download `lullwire-relay-<version>.apk` from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest), open it, and paste the invite link on its welcome screen. Official builds are signed by Valentyn Rukhaylo (ALTRU.dev), certificate `38:40:AF:64:…:00:CD:53:19` ([full fingerprint](docs/SELF-HOSTING.md#the-android-app)). |
+
+**To host a relay** (one person per group), choose one; the [hosting guide](docs/SELF-HOSTING.md) has every step:
+
+| | **Web hosting, one file** | **Your own server** |
+|---|---|---|
+| You need | Web hosting with PHP and HTTPS (cPanel and most shared hosts) | A Linux server (VPS) and a domain name |
+| Setup | Upload `lullwire-relay.php`, open it in a browser (5 minutes) | Download the relay, run `lullwire-relay init`, install Caddy (30 minutes) |
+| Chats, files, recovery | ✓ | ✓ |
+| Voice and video calls | ✗ | ✓ |
+| Guide | [Option A](docs/SELF-HOSTING.md#option-a-web-hosting-one-file) | [Option B](docs/SELF-HOSTING.md#option-b-your-own-server-with-calls) |
+
+Then open your relay's address, create your profile, and send invites from there.
+
+**Which download is which:** `lullwire-relay.php` is the relay for web hosting. `lullwire-relay-<version>-<system>` files are the relay **server** program for Linux, Windows, macOS or a Raspberry Pi. They are not a chat app for your computer: on a computer you chat in the browser. `lullwire-relay-<version>.apk` is the Android app.
+
+For people at risk, the guide explains a [hidden setup](docs/SELF-HOSTING.md#hidden-setup-for-people-at-risk) and its limits.
 
 ## Features
 
@@ -23,6 +48,7 @@ You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi o
 - **A sealed sender:** the relay can't tell who sent a message. Messages are padded to size classes with a random tail, so the relay learns only a coarse length.
 - **Signed addresses:** invites and messages carry a card signed by your identity key, so nobody can swap your mailbox in an intercepted invite, and contacts follow you safely if your address changes.
 - **Encrypted on the device:** messages, contacts and keys are stored encrypted. On Android the key sits in the phone's secure Keystore; anywhere, an optional **app lock** passphrase protects them.
+- **Files:** send photos, documents and anything else up to 16 MB, end-to-end encrypted like messages. Photos get a preview; the recipient's app checks every file against its SHA-256 before showing it.
 - **Voice and video calls:** encrypted end to end with a fresh key per call, carried over your relay's HTTPS connection. No peer-to-peer link, so neither side sees the other's IP address.
 - **Private relay:** a hidden path with a plain front page, and invite-only mode so strangers can't use your server. Invite links carry the join code, so friends just tap and start.
 - **Android app:** a small APK (no app store, no Google services) built with the plain SDK tools; it blocks screenshots and keeps keys out of cloud backups.
@@ -36,21 +62,7 @@ You run the relay yourself, on a spare Android phone, a $5 VPS, a Raspberry Pi o
 - **Different relays talk to each other:** each person can use a different relay, in any country.
 - **No dependencies:** vanilla JS, WebCrypto and WebCodecs in the browser; a Go relay built only on the standard library (or one PHP file); a Java Android shell with no libraries. Three small vendored libraries handle QR codes and the wordlist.
 
-## Install
-
-<p align="center"><img src="assets/brand/install-and-use.png" alt="How to install and use Lullwire Relay" width="540"></p>
-
-**To chat** (everyone you invite), pick one:
-
-| | How | Notes |
-|---|---|---|
-| **Android app** | Download `lullwire-relay-<version>.apk` from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest) and open it | No store. Check the SHA-256 from the release; official builds are signed by Valentyn Rukhaylo (ALTRU.dev), certificate `38:40:AF:64:…:00:CD:53:19` ([full fingerprint](docs/SELF-HOSTING.md#android-app)) |
-| **Web app (PWA)** | Open an invite link, then **Install** or **Add to Home Screen** | Android, Windows, Linux, ChromeOS, macOS; on iPhone use Safari's **Add to Home Screen** |
-| **Any browser** | Just open the invite link | Calls need a recent Chrome, Edge, Firefox or Safari |
-
-**To host** (one person per group), the easy way: download **`lullwire-relay.php`** from [Releases](https://github.com/altrudev/Lullwire-Relay/releases/latest), upload that one file to any web hosting with PHP and HTTPS (cPanel and most shared hosts), and open `https://your-site/lullwire-relay.php` in a browser. That's the whole setup: create your profile there and send invites. It does messages and recovery; for voice and video calls, run the Go relay instead: download it for your device (Linux x86/ARM, Raspberry Pi, Windows, macOS), run `./lullwire-relay init` and follow the steps it prints. The Go relay needs a domain with HTTPS in front of it (Caddy, nginx, Cloudflare Tunnel or Tor); on its own it only answers on your computer. The [self-hosting guide](docs/SELF-HOSTING.md) covers every option.
-
-## Quick start (local, 1 minute)
+## Try it locally (developers, 1 minute)
 
 ```bash
 git clone https://github.com/altrudev/Lullwire-Relay.git lullwire-relay
@@ -59,31 +71,17 @@ go build -o lullwire-relay ./cmd/lullwire-relay && ./lullwire-relay     # Go 1.2
 # or, with PHP 7.4+:  ./scripts/serve.sh
 ```
 
-Open http://localhost:8080 in two different browsers (or one normal and one private window). Create a profile in one, tap **Invite someone** and open that link in the other. Then chat, or start a call from the chat header.
-
-## Put it on the internet
-
-Browsers only allow the app's encryption on `https://` (or `localhost`), so a public relay needs HTTPS. Pick one:
-
-| Where | Effort | Notes |
-|---|---|---|
-| **Shared hosting, one file** (easiest) | Easy | Upload `lullwire-relay.php`, open it. Messages only, no calls. [Guide](docs/SELF-HOSTING.md#shared-hosting) |
-| **Your own VPS, private** (recommended for calls) | Medium | Hidden path + join code: looks like a plain website, calls included. [Guide](docs/SELF-HOSTING.md#private-setup-recommended) |
-| **Tor onion service** (optional, any Linux device or phone) | Medium | No domain, tunnel company or open ports; the location stays hidden. [Guide](docs/SELF-HOSTING.md#tor-onion-service) |
-| **Spare Android phone** (Termux + Cloudflare Tunnel) | Medium | Free and always on while plugged in. [Guide](docs/SELF-HOSTING.md#android-phone-as-the-relay) |
-| **VPS** (Debian/Ubuntu + Caddy) | Medium | Most reliable, about $5/month. [Guide](docs/SELF-HOSTING.md#vps) |
-| **App on IPFS**, relay anywhere above | Advanced | Anyone can mirror the app. [Guide](docs/SELF-HOSTING.md#ipfs) |
-
-The relay address gets baked into every invite, so **keep it stable.** A tunnel URL that changes on every restart will break your contacts' links.
+Open http://localhost:8080 in two different browsers (or one normal and one private window). Create a profile in one, tap **Invite someone** and open that link in the other. This only works on your own computer; to chat with other people, [host a relay](docs/SELF-HOSTING.md).
 
 ## Using it
 
 1. **Create a profile.** Pick a display name. Opened from an invite link, everything else is filled in.
 2. **Invite someone.** Tap **Invite someone** and share the link (any messenger, email or SMS) or let them scan the QR. They open it, pick a name, and you're connected.
 3. **Verify once.** Tap the yellow bar in the chat and compare the safety code in person or on a call, then tap **They match**.
-4. **Call.** The phone and camera buttons in the chat header start an encrypted voice or video call.
-5. **Turn on recovery words** in **Settings** and write the 8 words down. They're the only thing you need to get your profile back.
-6. **New phone?** On it, choose **From my other device**. On the old one, tap **Scan**, check the 12-digit code matches and approve. The profile moves over, and the old device signs out.
+4. **Send a file.** Tap the paperclip next to the message box and pick a file (up to 16 MB). The other side sees it arrive, with a preview for photos, and **Save** keeps a copy.
+5. **Call.** The phone and camera buttons in the chat header start an encrypted voice or video call (when your relay supports calls).
+6. **Turn on recovery words** in **Settings** and write the 8 words down. They're the only thing you need to get your profile back.
+7. **New phone?** On it, choose **From my other device**. On the old one, tap **Scan**, check the 12-digit code matches and approve. The profile moves over, and the old device signs out.
 
 On Android you can also install the [app](docs/SELF-HOSTING.md#android-app); paste an invite link on its welcome screen, or share the link to it.
 
@@ -144,7 +142,10 @@ SERIAL=emulator-5554 ./tests/android/run.sh   # Android app on an emulator (need
 
 ## Limits
 
-- **Calls are one-to-one** and go through the caller's relay, which sees that a call happened, how long it lasted and roughly how much data it used, but not what was said or shown.
+- **A relay needs web hosting or a server** reachable at an `https://` address; it can't run on a phone or home computer by itself (see [How it works](#how-it-works)).
+- **One-to-one only:** no group chats yet.
+- **Files up to 16 MB.** Relays keep up to 48 MiB waiting per person (relays older than 0.7: 8 MiB).
+- **Calls need the Go relay, are one-to-one** and go through the caller's relay, which sees that a call happened, how long it lasted and roughly how much data it used, but not what was said or shown.
 - **One active device per account.** Linking moves an account; it doesn't add a second device.
 - **Message history stays on the device that received it.**
 - **The relay operator sees metadata:** IP addresses, timing, size bucket and which mailbox gets mail. They can't see content or senders.

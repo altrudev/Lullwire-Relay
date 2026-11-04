@@ -126,6 +126,8 @@
     <button id="trustBar" class="trust"></button>
     <ol id="msgs"></ol>
     <form id="composer">
+      <button type="button" id="attachBtn" class="attach" aria-label="Send a file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+      <input type="file" id="fileIn" hidden>
       <textarea id="txt" rows="1" maxlength="4000" placeholder="Message"></textarea>
       <button class="send" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
     </form>
@@ -248,7 +250,7 @@
     <h3>Danger zone</h3>
     <div class="card"><button id="wipeBtn" class="btn danger">Erase everything on this device</button></div>
 
-    <p class="small muted foot">Lullwire Relay <span id="appVer">0.6.2</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
+    <p class="small muted foot">Lullwire Relay <span id="appVer">0.7.0</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
       <a href="https://github.com/altrudev/Lullwire-Relay" target="_blank" rel="noopener noreferrer">Source code</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></p>

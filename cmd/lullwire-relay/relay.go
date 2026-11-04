@@ -38,11 +38,11 @@ import (
 
 // Limits. Kept identical to relay.php.
 const (
-	maxBlob     = 524288  // bytes per blob
-	maxSlot     = 786432  // bytes per recovery slot
-	minBlob     = 93      // smallest valid envelope
-	maxPerBox   = 500     // pending messages per mailbox
-	maxBoxBytes = 8 << 20 // pending bytes per mailbox
+	maxBlob     = 524288   // bytes per blob
+	maxSlot     = 786432   // bytes per recovery slot
+	minBlob     = 93       // smallest valid envelope
+	maxPerBox   = 500      // pending messages per mailbox
+	maxBoxBytes = 48 << 20 // pending bytes per mailbox (room for a 16 MiB file sent as pieces)
 	ttl         = 14 * 24 * time.Hour
 	slotTTL     = 180 * 24 * time.Hour
 	memberTTL   = 180 * 24 * time.Hour // invite-only memberships not renewed for this long expire

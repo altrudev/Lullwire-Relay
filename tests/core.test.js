@@ -306,11 +306,50 @@ async function recoveryAndVault(){
   const wp=await H.wrapWithPass(mk,'correct horse battery');
   ok(H.hex(await H.unwrapWithPass(wp,'correct horse battery'))===H.hex(mk) && await rejects(H.unwrapWithPass(wp,'wrong horse battery')),'passphrase wraps the vault key');
 }
+// Files: pieces of a file are ordinary ratchet messages through the relay, put back
+// together and checked against the file's SHA-256 on arrival.
+async function files(){
+ const A=await H.newIdentity('Alice',R), B=await H.newIdentity('Bob',R);
+ const aB=view(B.pub), bBook={};
+ const enc2=new TextEncoder(), sha=async b=>Buffer.from(await crypto.subtle.digest('SHA-256',b)).toString('hex');
+ const fetchAll=async s=>{ const out=[]; for(;;){ const items=await (await post('get',{s})).json(); if(!items.length) return out; out.push(...items); await post('ack',{s,ids:items.map(i=>i.id)}); } };
+ // A file of about 1 MiB (6 pieces), through the relay and back.
+ const bytes=new Uint8Array(1000*1024+77); for(let i=0;i<bytes.length;i+=65536) crypto.getRandomValues(bytes.subarray(i,i+65536));
+ const meta={id:H.hex(H.rand(8)),name:'report.pdf',type:'application/pdf',h:await sha(bytes)};
+ const pieces=H.filePieces(bytes,meta);
+ ok(pieces.length===6 && pieces.every(p=>p.n===6),'1 MiB file: 6 pieces');
+ let biggest=0;
+ for(const p of pieces){ const blob=await encryptFor(A,aB,{...p,ts:Date.now()}); biggest=Math.max(biggest,blob.length); const r=await H.postMail(R,B.box,blob); if(!r.ok){ ok(false,'piece refused: '+r.status); return; } }
+ ok(biggest<=512*1024,'each piece fits a relay envelope ('+Math.round(biggest/1024)+' KiB)');
+ const got=[]; for(const it of (await fetchAll(B.secret)).reverse()){ const x=await recv(B,bBook,Uint8Array.from(atob(it.d),c=>c.charCodeAt(0))); got.push(H.checkFilePiece(x.msg)); }
+ ok(got.length===6 && got.every(Boolean),'all pieces arrive and check out (in any order)');
+ got.sort((a,b)=>a.i-b.i);
+ const whole=new Uint8Array(got.reduce((n,p)=>n+p.d.length,0)); let o=0; for(const p of got){ whole.set(p.d,o); o+=p.d.length; }
+ ok(await sha(whole)===meta.h && got[0].name==='report.pdf' && got[0].type==='application/pdf','file rebuilt byte for byte (SHA-256 matches)');
+ // Tampered or inconsistent pieces are refused.
+ const p0=pieces[0], bad=[
+  ['a piece of the wrong length',{...p0,d:H.b64e(new Uint8Array(1000))}],
+  ['a piece count that does not match the size',{...p0,n:7}],
+  ['an index past the end',{...p0,i:6}],
+  ['a file over 16 MiB',{...p0,size:H.MAX_FILE+1,n:Math.ceil((H.MAX_FILE+1)/H.FILE_CHUNK)}],
+  ['a malformed id',{...p0,id:'../../x'}],
+  ['a malformed hash',{...p0,h:'zz'}]];
+ for(const [what,m] of bad) ok(H.checkFilePiece(m)===null,'refused: '+what);
+ ok(H.fileName('../../etc/passwd').indexOf('/')<0 && H.fileName('.htaccess')[0]!=='.' && H.fileName('a\u0000b')==='a_b','file names lose folders, control characters and leading dots');
+ ok(H.fileType('text/html; charset=utf-8')==='application/octet-stream' && H.fileType('Image/PNG')==='image/png','file types are checked');
+ // A full 16 MiB file waits on the relay while the recipient is offline (48 MiB per mailbox).
+ const big=new Uint8Array(H.MAX_FILE); for(let i=0;i<big.length;i+=65536) crypto.getRandomValues(big.subarray(i,i+65536));
+ const bp=H.filePieces(big,{id:H.hex(H.rand(8)),name:'video.mp4',type:'video/mp4',h:await sha(big)});
+ let accepted=0; for(const p of bp){ const r=await H.postMail(R,B.box,await encryptFor(A,aB,{...p,ts:Date.now()})); if(r.ok) accepted++; else break; }
+ ok(accepted===bp.length,'a 16 MiB file ('+bp.length+' pieces) waits on the relay for an offline recipient ('+accepted+' accepted)');
+ await fetchAll(B.secret);
+}
 (async()=>{
   console.log('Ratchet and envelope'); await ratchet();
   console.log('Relay, live mode, recovery, linking'); await relayAndRecovery();
   console.log('Audit regressions'); await auditRegressions();
   console.log('Protocol v4: prekeys, cards, sender binding'); await protocolV4();
   console.log('Recovery v2, padding, vault'); await recoveryAndVault();
+  console.log('Files'); await files();
   console.log(fails?fails+' of '+n+' FAILED':'all '+n+' passed'); process.exit(fails?1:0);
 })().catch(e=>{console.error(e);process.exit(1)});

@@ -77,6 +77,14 @@ if [ "$IMPL" = phpfile ]; then
   [ "$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $tag" "${APP}app.js")" = 304 ] && echo "  ok   unchanged files answer 304" || { echo "  FAIL no 304 for $tag"; exit 1; }
   [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "${APP}index.html")" = 405 ] && [ "$(curl -s -o /dev/null -w '%{http_code}' "$RURL")" = 405 ] \
     && echo "  ok   wrong methods refused" || { echo "  FAIL methods"; exit 1; }
+  # Hidden setup: the same file under a random name works as a relay, and its data folder
+  # takes that name too, so nothing on the server says "lullwire".
+  cp "$TMP/home/public_html/lullwire-relay.php" "$TMP/home/public_html/k7q4mxp2ab.php"
+  HURL="http://localhost:$PORT/k7q4mxp2ab.php/relay.php"
+  [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$HURL?a=send" --data-binary "0123456789abcdef0123456789abcdef$(head -c 200 /dev/zero | tr '\0' x)")" = 200 ] \
+    && [ -d "$TMP/home/k7q4mxp2ab-data" ] && [ -z "$(ls -A "$TMP/home" | grep -i '^k7q4mxp2ab' | grep -iv '^k7q4mxp2ab-data$' || true)" ] \
+    && [ "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://localhost:$PORT/k7q4mxp2ab.php")" = "301 http://localhost:$PORT/k7q4mxp2ab.php/" ] \
+    && echo "  ok   renamed (hidden) copy works and keeps its data in k7q4mxp2ab-data" || { echo "  FAIL hidden copy: $(ls -A "$TMP/home")"; exit 1; }
 else
 for p in data/ data/recover/ .htaccess scripts/router.php embed.go; do
   code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/$p")

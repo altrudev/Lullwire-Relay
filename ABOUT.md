@@ -37,7 +37,7 @@ Current limits: one active device per profile, no push notifications in the brow
 - **Creator, designer and maintainer:** Valentyn (Val) Rukhaylo, [ALTRU.dev](https://altru.dev) ("Code for Humanity")
 - **Copyright:** © 2026 Valentyn Rukhaylo (ALTRU.dev); see [NOTICE](NOTICE)
 - **Repository:** https://github.com/altrudev/Lullwire-Relay
-- **First public version:** 0.3.0 (2026-10-31) · **Current:** 0.6.2 (2026-11-04)
+- **First public version:** 0.3.0 (2026-10-31) · **Current:** 0.7.0 (2026-11-04)
 - **License:** GNU AGPL v3.0 or later for original code and documentation; bundled libraries keep their own licenses ([LICENSES.md](LICENSES.md)); name and logo are not licensed as trademarks ([brand guide](assets/brand/README.md))
 - **Contributions:** [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Security reports:** [SECURITY.md](SECURITY.md); please never post exploitable issues publicly
