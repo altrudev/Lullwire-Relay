@@ -388,6 +388,9 @@ func (r *Relay) serveLive(w http.ResponseWriter, req *http.Request) {
 			key = "box|" + sha256hex(hello.S)[:32]
 		}
 		rm, err = r.hub.open(hello.Room, key, c)
+		if err == nil {
+			r.countCall()
+		}
 	case "join":
 		if !distinct { // behind Tor everyone shares one address; joining still needs the room's secret id
 			key = ""

@@ -30,6 +30,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -62,6 +63,7 @@ func main() {
 	cover := flag.String("cover", set("cover", ""), "HTML file shown at every other address (default: a plain placeholder page)")
 	joinCode := flag.String("join-code", set("join-code", ""), "invite-only mode: people need this code (it travels inside your invites) to use the relay")
 	newPath := flag.Bool("new-path", false, "print a random private path and join code, then exit")
+	ownerCode := flag.Bool("owner-code", false, "print a one-time code (valid 30 minutes) that lets your app claim this relay's owner dashboard, then exit; use the relay's usual settings so it finds the same data folder")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Lullwire Relay %s\n\n  lullwire-relay init     answer a few questions and write a settings file\n  lullwire-relay [flags]  run the relay\n\nFlags:\n", version)
@@ -74,6 +76,14 @@ func main() {
 	}
 	if *newPath {
 		fmt.Printf("-path /%s/ -join-code %s\n", randWord(10), randWord(16))
+		return
+	}
+	if *ownerCode {
+		code := randWord(10)
+		if err := writeOwnerClaim(*data, code, time.Now()); err != nil {
+			log.Fatalf("data folder: %v", err)
+		}
+		fmt.Printf("Owner code: %s\n\nIn the app: Settings, Owner dashboard, enter this code. It works once, for 30 minutes.\nA new code replaces the current owner device.\n", code)
 		return
 	}
 	base, err := cleanPrefix(*prefix)
@@ -116,6 +126,13 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// The owner can restart the relay from the app: a graceful shutdown, then the
+	// program starts again in the same process (picking up an updated binary).
+	restarting := make(chan struct{})
+	var restartOnce sync.Once
+	if canReexec {
+		relay.restart = func() { restartOnce.Do(func() { close(restarting) }) }
+	}
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
@@ -147,8 +164,12 @@ func main() {
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
-		<-ctx.Done()
-		log.Print("shutting down")
+		select {
+		case <-ctx.Done():
+			log.Print("shutting down")
+		case <-restarting:
+			log.Print("restarting")
+		}
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx) // finishes requests in flight before returning
@@ -157,6 +178,14 @@ func main() {
 		log.Fatal(err)
 	}
 	<-stopped
+	relay.saveStats()
+	select {
+	case <-restarting:
+		if ctx.Err() == nil { // a signal during the restart wins: stay stopped
+			log.Fatalf("restart failed: %v", reexec())
+		}
+	default:
+	}
 }
 
 // siteFS returns the app files: the built-in copy, or a folder on disk. A data

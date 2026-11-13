@@ -18,8 +18,10 @@ package main
 //
 // Send connection, after {"op":"send"} -> {"op":"ready","send":true}:
 //
-//	(on an invite-only relay the hello carries "j": sha256("lullwire-join|" + join code),
-//	so only people who were invited can open one; it doesn't say which mailbox is theirs)
+//	(on an invite-only relay the hello carries "j": sha256("lullwire-member|" + member key),
+//	the key every member gets from a=join, so only members can open one; it doesn't say
+//	which mailbox is theirs. LEGACY: apps before 0.8 send sha256("lullwire-join|" + join
+//	code), accepted while the owner hasn't switched the shared code off)
 //	app -> relay  binary 0x01 | request id (4) | box (16) | envelope      deliver to a mailbox here
 //	app -> relay  binary 0x00 | request id (4) | 16 bytes | noise          cover traffic
 //	relay -> app  text  {"op":"put","r":<id>,"ok":true} or {...,"e":<status>}  (cover gets "ok" too)
@@ -29,7 +31,6 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -119,6 +120,8 @@ func (r *Relay) serveMail(c *wsConn, req *http.Request, hello liveHello) {
 		return
 	}
 	defer release()
+	defer r.trackConn(box, c)()
+	r.touch(box)
 	// Like a long-poll: only a mailbox that exists counts as known, and the map is capped.
 	if _, err := os.Stat(r.boxDir(box)); err == nil {
 		r.mu.Lock()
@@ -245,8 +248,8 @@ func (r *Relay) serveMail(c *wsConn, req *http.Request, hello liveHello) {
 
 // serveSend carries deliveries (and cover traffic) for an app, without knowing who it is.
 func (r *Relay) serveSend(c *wsConn, req *http.Request, hello liveHello) {
-	if r.inviteOnly() && subtle.ConstantTimeCompare([]byte(hello.J), []byte(r.joinHash)) != 1 {
-		c.sendJSON(map[string]string{"op": "error", "msg": "join code required"})
+	if !r.sendAllowed(hello.J) { // the app fetches the current member key (a=join) and tries again
+		c.sendJSON(map[string]string{"op": "error", "msg": "member key required"})
 		return
 	}
 	release := r.liveSlot(req, "send", "")
@@ -255,6 +258,7 @@ func (r *Relay) serveSend(c *wsConn, req *http.Request, hello liveHello) {
 		return
 	}
 	defer release()
+	defer r.trackConn("", c)()
 	c.maxMsg = sendMaxMessage
 	c.sendJSON(map[string]any{"op": "ready", "send": true})
 	go func() {

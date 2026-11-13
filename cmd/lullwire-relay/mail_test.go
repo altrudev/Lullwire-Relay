@@ -110,10 +110,11 @@ func TestSendChecksAndCover(t *testing.T) {
 	r.mu.Lock()
 	r.members[boxOf(member)] = true
 	r.mu.Unlock()
-	// On an invite-only relay a send connection needs the join code (not a mailbox).
+	// On an invite-only relay a send connection needs the member key, or (LEGACY) the
+	// join code while it's on; never a mailbox.
 	nope := dialWS(t, srv, "/live")
 	nope.json(map[string]any{"op": "send", "j": sha256hex("lullwire-join|wrong")})
-	if m := nope.expectOp(t, "error"); !strings.Contains(m["msg"].(string), "join") {
+	if m := nope.expectOp(t, "error"); !strings.Contains(m["msg"].(string), "member key") {
 		t.Fatal(m)
 	}
 	w := dialWS(t, srv, "/live")

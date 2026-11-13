@@ -753,6 +753,9 @@ func TestMemberLimitsAndExpiry(t *testing.T) {
 		t.Errorf("another client: %d", c)
 	}
 	box := sha256hex(secret(1001))[:32]
+	r.mu.Lock()
+	delete(r.seen, box) // activity counts as renewal; this member has been away
+	r.mu.Unlock()
 	old := time.Now().Add(-memberTTL - time.Hour)
 	_ = os.Chtimes(filepath.Join(r.memberDir, box), old, old)
 	r.Sweep()

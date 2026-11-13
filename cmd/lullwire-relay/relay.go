@@ -91,6 +91,19 @@ type Relay struct {
 	members   map[string]bool // invite-only: mailboxes allowed on this relay
 	memberDir string
 
+	// The owner's dashboard (owner.go).
+	ownerHash   string               // sha256 of the owner token; empty = not claimed
+	memberKey   string               // members prove it on send connections; rotated on removal
+	sharedOff   bool                 // the shared join code no longer admits anyone
+	inviteDir   string               // single-use invites
+	seen        map[string]time.Time // member mailbox -> last activity
+	activeToday map[string]bool      // mailboxes counted in today's "active"
+	days        []dayStats           // daily counts, last statsDays
+	started     time.Time
+	restart     func()                      // set by main where re-executing is possible
+	sendConns   map[*wsConn]bool            // open send connections
+	mailConns   map[string]map[*wsConn]bool // open mail connections by mailbox
+
 	fwdHeader string        // header a trusted proxy uses to report the client address
 	busy      chan struct{} // semaphore for body-heavy work
 	quit      chan struct{} // closed on shutdown so waiting long-polls answer at once
@@ -113,7 +126,10 @@ func NewRelay(data string, trusted []string, onion bool) (*Relay, error) {
 		counts: map[string]counter{}, known: map[string]time.Time{},
 		fwdHeader: "X-Forwarded-For", busy: make(chan struct{}, maxBusy), quit: make(chan struct{}),
 		members: map[string]bool{}, memberDir: filepath.Join(data, "members"), hub: newLiveHub(),
+		inviteDir: filepath.Join(data, "invites"), seen: map[string]time.Time{}, activeToday: map[string]bool{},
+		sendConns: map[*wsConn]bool{}, mailConns: map[string]map[*wsConn]bool{},
 	}
+	r.started = r.now()
 	for _, t := range trusted {
 		if t = strings.TrimSpace(t); t != "" {
 			r.trusted[t] = true
@@ -129,6 +145,9 @@ func NewRelay(data string, trusted []string, onion bool) (*Relay, error) {
 		if isHex(e.Name(), 32) {
 			r.members[e.Name()] = true
 		}
+	}
+	if err := r.loadOwnerState(); err != nil {
+		return nil, err
 	}
 	return r, nil
 }
@@ -440,7 +459,9 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	q := req.URL.Query()
 	switch a := q.Get("a"); a {
 	case "info": // what the app needs to know before signing up
-		writeJSON(w, http.StatusOK, map[string]any{"v": 2, "invite": r.inviteOnly(), "calls": true, "mail": true})
+		writeJSON(w, http.StatusOK, map[string]any{"v": 2, "invite": r.inviteOnly(), "calls": true, "mail": true, "owner": true})
+	case "owner": // the relay owner's dashboard (owner.go)
+		r.owner(w, req)
 	case "put": // LEGACY: the mailbox in the URL, where access logs record it (apps before 0.6.1)
 		r.put(w, req, q.Get("box"))
 	case "send": // the mailbox leads the body, so no log or proxy sees it
@@ -480,10 +501,32 @@ func (r *Relay) join(w http.ResponseWriter, req *http.Request, box string, in ma
 	}
 	key, distinct := r.clientKey(req)
 	code, _ := in["code"].(string)
-	got := sha256hex("lullwire-join|" + strings.TrimSpace(code))
-	if subtle.ConstantTimeCompare([]byte(got), []byte(r.joinHash)) != 1 {
-		// Wrong codes are limited. The limits never apply to the right code, so
-		// guessing can't lock out people who have it.
+	r.mu.Lock()
+	known, count := r.members[box], len(r.members)
+	r.mu.Unlock()
+	if known {
+		// Already a member (proved by the mailbox secret): renew, and hand over the
+		// current member key. No code needed, so changing or switching off the shared
+		// code never drops existing members. "code" says whether the shared code the
+		// app holds still admits new people, so it stops putting a dead one in invites.
+		now := r.now()
+		_ = os.Chtimes(filepath.Join(r.memberDir, box), now, now)
+		r.touch(box)
+		r.mu.Lock()
+		mk, off := r.memberKey, r.sharedOff
+		r.mu.Unlock()
+		out := map[string]any{"ok": true, "k": mk, "shared": !off}
+		if strings.TrimSpace(code) != "" {
+			out["code"] = r.sharedCodeOK(code)
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	// A new member needs the shared join code (unless the owner switched it off) or a
+	// single-use invite. Wrong codes are limited; the limits never apply to a right
+	// one, so guessing can't lock out people who have it.
+	shared := r.sharedCodeOK(code)
+	if !shared && !r.inviteValid(code) {
 		if r.used("join", key, time.Hour) >= 10 || r.used("join-all", "all", time.Minute) >= 60 {
 			fail(w, 429, "too many attempts")
 			return
@@ -491,15 +534,6 @@ func (r *Relay) join(w http.ResponseWriter, req *http.Request, box string, in ma
 		r.allow("join", key, time.Hour, 10)
 		r.allow("join-all", "all", time.Minute, 60)
 		fail(w, 403, "wrong join code")
-		return
-	}
-	r.mu.Lock()
-	known, count := r.members[box], len(r.members)
-	r.mu.Unlock()
-	if known { // already a member: just note that it's still in use
-		now := r.now()
-		_ = os.Chtimes(filepath.Join(r.memberDir, box), now, now)
-		okJSON(w)
 		return
 	}
 	// The code travels in invites and invites get forwarded, so new memberships are
@@ -513,14 +547,23 @@ func (r *Relay) join(w http.ResponseWriter, req *http.Request, box string, in ma
 		fail(w, 507, "relay full")
 		return
 	}
-	if err := os.WriteFile(filepath.Join(r.memberDir, box), nil, 0o600); err != nil {
+	// A single-use invite is used up only now, once nothing else can refuse the join.
+	if !shared && !r.useInvite(code) {
+		fail(w, 403, "wrong join code")
+		return
+	}
+	rec, _ := json.Marshal(map[string]int64{"j": r.now().Unix()})
+	if err := os.WriteFile(filepath.Join(r.memberDir, box), rec, 0o600); err != nil {
 		fail(w, 500, "storage error")
 		return
 	}
 	r.mu.Lock()
 	r.members[box] = true
+	mk, off := r.memberKey, r.sharedOff
 	r.mu.Unlock()
-	okJSON(w)
+	r.countJoin()
+	r.touch(box)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "k": mk, "shared": !off})
 }
 
 func (r *Relay) put(w http.ResponseWriter, req *http.Request, box string) {
@@ -614,11 +657,13 @@ func (r *Relay) store(box string, body []byte) (int, string) {
 	r.mu.Lock()
 	r.known[box] = r.now()
 	r.mu.Unlock()
+	r.countDelivery(len(body))
 	r.wake(box)
 	return 0, ""
 }
 
 func (r *Relay) get(w http.ResponseWriter, req *http.Request, box, waitArg string) {
+	r.touch(box)
 	wait := leadingInt(waitArg) // like PHP's (int) cast: "5abc" -> 5
 	wait = max(0, min(maxWait, wait))
 	if wait > 0 {
@@ -877,6 +922,7 @@ func (r *Relay) Sweep() {
 		_ = os.Remove(dir)            // only succeeds when empty
 		unlock()
 	}
+	r.sweepOwner() // before expiry, so recent activity counts as renewal
 	// Memberships nobody has renewed for memberTTL expire (the app renews its own on
 	// every start; temporary mailboxes from device moves simply lapse).
 	if r.inviteOnly() {
