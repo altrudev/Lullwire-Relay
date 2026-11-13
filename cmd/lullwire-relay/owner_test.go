@@ -47,7 +47,7 @@ func TestOwnerClaim(t *testing.T) {
 	if _, info := do(h, call{url: "/relay.php?a=info"}); info["owner"] != true {
 		t.Fatalf("info should offer the owner dashboard: %v", info)
 	}
-	if c, m := ownerDo(h, secret(1), "status"); c != 403 || m["error"] != "no owner" {
+	if c, m := ownerDo(h, secret(1), "status"); c != 403 || m["error"] != "not the owner" {
 		t.Fatalf("status before any claim = %d %v", c, m)
 	}
 	if err := writeOwnerClaim(r.data, "right-code", time.Now()); err != nil {
@@ -375,5 +375,40 @@ func TestOwnerRestart(t *testing.T) {
 	}
 	if c, _ := ownerDo(h, secret(1), "restart"); c != 403 {
 		t.Errorf("restart by someone else = %d", c)
+	}
+}
+
+func TestTemporaryMailboxesForMoves(t *testing.T) {
+	r, h := newTestRelay(t, false)
+	r.SetJoinCode("shared")
+	joinWith(h, secret(1), "shared")
+	tok := claimOwner(t, r, h)
+	ownerDo(h, tok, "shared", `"on":false`)
+	temp := func(s, by string) int {
+		rec, _ := do(h, call{url: "/relay.php?a=join", body: `{"s":"` + s + `","by":"` + by + `","temp":true}`})
+		return rec.Code
+	}
+	if c := temp(secret(50), secret(99)); c != 403 {
+		t.Errorf("a non-member admitted a mailbox: %d", c)
+	}
+	if c := temp(secret(50), secret(1)); c != 200 || !r.isMember(boxOf(secret(50))) {
+		t.Fatalf("member admitting a move mailbox = %d", c)
+	}
+	if _, l := ownerDo(h, tok, "members"); len(l["members"].([]any)) != 1 {
+		t.Errorf("temporary mailboxes must not be listed as members: %v", l)
+	}
+	for i := 0; i < tempPerHour; i++ {
+		temp(secret(60+i), secret(1))
+	}
+	if c := temp(secret(70), secret(1)); c != 403 {
+		t.Errorf("temporary admissions not limited: %d", c)
+	}
+	r.now = func() time.Time { return time.Now().Add(61 * time.Minute) }
+	if r.isMember(boxOf(secret(50))) {
+		t.Error("a temporary mailbox outlived its hour")
+	}
+	r.Sweep()
+	if len(r.temp) != 0 {
+		t.Errorf("expired temporary mailboxes not swept: %d", len(r.temp))
 	}
 }

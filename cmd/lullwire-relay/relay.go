@@ -47,6 +47,7 @@ const (
 	slotTTL     = 180 * 24 * time.Hour
 	memberTTL   = 180 * 24 * time.Hour // invite-only memberships not renewed for this long expire
 	maxMembers  = 20000                // members an invite-only relay keeps at most
+	tempPerHour = 6                    // temporary mailboxes (device moves) a member may admit per hour
 	maxWait     = 20                   // seconds a live (long-poll) request may wait
 	minFree     = 256 << 20            // refuse new data below this much free disk
 	putsPerMin  = 120                  // per client
@@ -103,6 +104,7 @@ type Relay struct {
 	restart     func()                      // set by main where re-executing is possible
 	sendConns   map[*wsConn]bool            // open send connections
 	mailConns   map[string]map[*wsConn]bool // open mail connections by mailbox
+	temp        map[string]time.Time        // mailboxes a member admitted for a device move -> until
 
 	fwdHeader string        // header a trusted proxy uses to report the client address
 	busy      chan struct{} // semaphore for body-heavy work
@@ -127,7 +129,7 @@ func NewRelay(data string, trusted []string, onion bool) (*Relay, error) {
 		fwdHeader: "X-Forwarded-For", busy: make(chan struct{}, maxBusy), quit: make(chan struct{}),
 		members: map[string]bool{}, memberDir: filepath.Join(data, "members"), hub: newLiveHub(),
 		inviteDir: filepath.Join(data, "invites"), seen: map[string]time.Time{}, activeToday: map[string]bool{},
-		sendConns: map[*wsConn]bool{}, mailConns: map[string]map[*wsConn]bool{},
+		sendConns: map[*wsConn]bool{}, mailConns: map[string]map[*wsConn]bool{}, temp: map[string]time.Time{},
 	}
 	r.started = r.now()
 	for _, t := range trusted {
@@ -168,7 +170,7 @@ func (r *Relay) isMember(box string) bool {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.members[box]
+	return r.members[box] || r.now().Before(r.temp[box])
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -520,6 +522,27 @@ func (r *Relay) join(w http.ResponseWriter, req *http.Request, box string, in ma
 			out["code"] = r.sharedCodeOK(code)
 		}
 		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	// Moving a profile to a new device uses two temporary mailboxes; the member's app
+	// admits them for an hour, proving membership with its own mailbox secret. They
+	// aren't members (not listed, not counted, gone after the hour), and a member can
+	// admit only a few, so this can't be used to bring in new people.
+	if by, ok := strArg(in, "by", 64); ok && in["temp"] == true {
+		sponsor := sha256hex(by)[:32]
+		r.mu.Lock()
+		isSponsor := r.members[sponsor]
+		r.mu.Unlock()
+		if !isSponsor || !r.allow("temp", sponsor, time.Hour, tempPerHour) {
+			fail(w, 403, "not allowed")
+			return
+		}
+		r.mu.Lock()
+		if len(r.temp) < maxCounters {
+			r.temp[box] = r.now().Add(time.Hour)
+		}
+		r.mu.Unlock()
+		okJSON(w)
 		return
 	}
 	// A new member needs the shared join code (unless the owner switched it off) or a
@@ -958,6 +981,11 @@ func (r *Relay) Sweep() {
 	for k, c := range r.counts {
 		if c.exp < cur {
 			delete(r.counts, k)
+		}
+	}
+	for box, until := range r.temp {
+		if now.After(until) {
+			delete(r.temp, box)
 		}
 	}
 	for box, seen := range r.known {

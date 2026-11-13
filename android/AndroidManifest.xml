@@ -3,8 +3,8 @@
      SPDX-License-Identifier: AGPL-3.0-or-later -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.altru.lullwire"
-    android:versionCode="11"
-    android:versionName="0.7.2">
+    android:versionCode="12"
+    android:versionName="0.8.0">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
 

@@ -173,6 +173,18 @@ if [ "$E2E" = 1 ]; then
   fi
   LOGAT=$(wc -l < "$TMP/server.log")
   BASE="$BASE" JOIN="$JOIN" python3 tests/e2e.py
+  if [ "$IMPL" = go ]; then
+    echo "== owner dashboard (browsers)"
+    # A fresh relay of its own: it gets restarted from the app, in place.
+    "$TMP/lullwire-relay" -addr "localhost:$((PORT+5))" -data "$TMP/owner-data" -path /owner-private/ -join-code owner-join >>"$TMP/server.log" 2>&1 &
+    OPID=$!
+    OBASE="http://localhost:$((PORT+5))/owner-private/index.html"
+    for _ in $(seq 50); do curl -s -o /dev/null "$OBASE" && break; sleep 0.1; done
+    BASE="$OBASE" JOIN=owner-join RELAY_BIN="$TMP/lullwire-relay" RELAY_DATA="$TMP/owner-data" python3 tests/owner.py
+    now=$(pgrep -f -- "-data $TMP/owner-data" | tr "\n" " ")
+    [ "$now" = "$OPID " ] && echo "  ok   restarted in place (same process id)" || { echo "  FAIL relay process changed or died after restart (was $OPID, now: $now)"; tail -5 "$TMP/server.log"; exit 1; }
+    kill $OPID 2>/dev/null || true
+  fi
   if [ "$IMPL" = phpfile ]; then
     # Without a router script, PHP's server logs every request line, like a host's access
     # log: the app's deliveries must not put anyone's mailbox in it.

@@ -24,7 +24,7 @@ Labels beginning with `hush/` or `hush-` are the historical names from Hush Rela
 
 - `q` signs `b` and `r`: an invite whose card doesn't verify is refused (someone changed it). An invite without a card (from Hush Relay 0.5) is added only after a warning. For a contact you already have, a newer signed card moves them without a question; an unsigned one asks first.
 - `k` is 12 random bytes. Someone who adds you from your invite sends `{t: "hello", k}`; a matching token makes them a contact instead of a request, for the first 25 people per token (`me.inviteTok` is replaced when you make a new link).
-- `j` is your relay's join code when it is invite-only, so the person you invite can sign up there.
+- `j` lets the person you invite sign up on your invite-only relay: a single-use invite code when you are the relay's owner (it works once, for 7 days), otherwise the relay's shared join code while it is on. Members' invites carry no `j` once the owner switches the shared code off; they still add contacts.
 - Inside the Android app, `<app>` is the web copy of the app your relay serves (the relay URL without its last path segment).
 
 ## Envelope (what the relay stores)
@@ -86,10 +86,28 @@ Message bodies are JSON with an authenticated timestamp: `{t: "msg", id, txt, ts
 | `?a=rput` | `{"l": 32hex, "t": 64hex, "d": b64url}` | stores a recovery slot; an existing slot needs the same `t` |
 | `?a=rget` | `{"l"}` | `{d}` or 404 |
 | `?a=rdel` | `{"l", "t"}` | deletes a slot |
-| `?a=info` | `{}` | `{v: 2, invite: bool, calls: bool, mail: bool}` (Go relay; the PHP relay answers 400, which the app reads as "open, no calls, no live connection") |
-| `?a=join` | `{"s": secret, "code"}` | registers `box(s)` as a member of an invite-only relay; 403 for a wrong code |
+| `?a=info` | `{}` | `{v: 2, invite: bool, calls: bool, mail: bool, owner: bool}` (Go relay; the PHP relay answers 400, which the app reads as "open, no calls, no live connection, no owner dashboard") |
+| `?a=join` | `{"s": secret, "code"?}` | a member renews (no code needed) and gets `{ok, k: memberKey, shared: bool}`, plus `code: bool` when it sent one (does that shared code still admit people); a new mailbox needs the shared code (while on) or a single-use invite, which is used up; 403 otherwise |
+| `?a=join` | `{"s", "by": memberSecret, "temp": true}` | a member admits a temporary mailbox for an hour (moving to a new device); at most 6 per member per hour; not listed or counted as a member |
+| `?a=owner` | `{"o": ownerToken, "op", …}` | the owner's dashboard (Go relay); see below |
 
-**Invite-only relays** (Go relay with `-join-code`) keep a list of member mailboxes. `put` to a non-member box answers 404 `unknown box`, so strangers can't use the relay as a free mailbox; `rput` needs the `s` of a member. `get` and `ack` for a non-member answer like an empty mailbox. The relay keeps `SHA-256("lullwire-join|" + code)` in memory, never the code. Wrong codes are limited to 10 per client per hour and 60 per minute overall; the right code is always accepted.
+**Invite-only relays** (Go relay with `-join-code`) keep a list of member mailboxes, each with the day it joined (from 0.8) and its last activity. `put` to a non-member box answers 404 `unknown box`, so strangers can't use the relay as a free mailbox; `rput` needs the `s` of a member. `get` and `ack` for a non-member answer like an empty mailbox. The relay keeps `SHA-256("lullwire-join|" + code)` in memory, never the code. Wrong codes are limited to 10 per client per hour and 60 per minute overall; the right code is always accepted.
+
+**Member key.** Every member gets the same random 32-byte member key from `join`. Send connections prove it (below), which shows the app belongs to a member without saying which. Removing a member changes the key; the others pick up the new one on their next renewal, which the app makes when a send connection is refused. Renewal needs only the mailbox secret, so changing or switching off the shared code never drops existing members.
+
+**Owner dashboard** (Go relay). `lullwire-relay -owner-code`, run on the server with the relay's settings, writes a one-time code valid for 30 minutes. The owner's app makes a random 32-byte token and sends `{"op":"claim","code","h": SHA-256("lullwire-owner|" + token)}`; the relay keeps only `h`, and a new code replaces the owner. Other requests carry `{"o": token, "op"}`:
+
+| `op` | Extra | Result |
+|---|---|---|
+| `status` | | version, start time, whether restart works, invite-only, shared code on, members, mailboxes active in the last day and week, waiting messages and bytes, recovery backups, free disk, open invites, live connections (mail, send, calls), and daily counts for the last 30 days (`in`, `bytes`, `active`, `joins`, `calls`) |
+| `members` | | `[{id, joined, seen, waiting}]`; `id` = `SHA-256("lullwire-member|" + box)[0..12 hex]`. The app names members by computing the same alias for its own contacts on the device |
+| `remove` | `id` | deletes the membership and waiting mail, closes the member's connections, and changes the member key |
+| `invite` | `days` (1–30, default 7) | `{code, id, created, expires}`; the relay stores only `SHA-256("lullwire-invite|" + code)` |
+| `invites` / `revoke` | `id` | open invites; revoking deletes one |
+| `shared` | `on` | switches the shared join code on or off (kept across restarts) |
+| `restart` | | answers, then shuts down gracefully and starts the relay program again in the same process (an updated binary takes over); 501 where that isn't possible |
+
+Wrong tokens are limited to 20 per client per hour (200 overall), wrong claim codes to 10 (50); the right token is never limited. Answers are the same whether or not the relay has an owner yet.
 
 **Private path** (Go relay with `-path /<secret>/`): everything above, the app and `/live` move under that prefix, and `/` shows a plain placeholder page. It keeps scanners and casual visitors from recognising the server; it is not access control (the join code is).
 
@@ -109,7 +127,7 @@ The app keeps two WebSockets open at `/live` (the relay URL with its last path s
 
 An envelope is pushed once per connection; anything unacknowledged is pushed again on the next one (the app reconnects after a storage error for that reason). At most about 2 MiB is in flight unacknowledged.
 
-**Send connection** (delivering). It carries nothing that identifies the app's mailbox: the first frame is `{"op":"send"}` (on an invite-only relay `{"op":"send","j": SHA-256("lullwire-join|" + joinCode)}`, which only shows that the app was invited), answered with `{"op":"ready","send":true}`. The app opens and closes it on its own random schedule, not with the mail connection; until it is up, deliveries go over HTTPS. Deliveries therefore aren't tied to the sender's mailbox, just as with plain HTTPS deliveries; a relay that sees IP addresses can still guess (known limit 3).
+**Send connection** (delivering). It carries nothing that identifies the app's mailbox: the first frame is `{"op":"send"}` (on an invite-only relay `{"op":"send","j": SHA-256("lullwire-member|" + memberKey)}`, which only shows that the app belongs to a member; LEGACY: apps before 0.8 send `SHA-256("lullwire-join|" + joinCode)`, accepted while the shared code is on; a refused app sends over HTTPS instead), answered with `{"op":"ready","send":true}`. The app opens and closes it on its own random schedule, not with the mail connection; until it is up, deliveries go over HTTPS. Deliveries therefore aren't tied to the sender's mailbox, just as with plain HTTPS deliveries; a relay that sees IP addresses can still guess (known limit 3).
 
 | Direction | Frame | Meaning |
 |---|---|---|
@@ -152,7 +170,7 @@ type   = 1 audio (Opus, 48 kHz mono, 32 kbit/s, 20 ms) · 2 video (VP8, 640×360
 ## Moving to a new device
 
 1. The new device creates an ephemeral key pair `E` and a temporary mailbox `(s, b = box(s))`. It shows `https://<app>/#link=` followed by `base64url({r, e: E.pub, s})` as a QR code. It also shows the 12-digit code `SHA-256(E.pub)[0..16 hex] mod 10^12`.
-2. The old device scans the QR (move codes are accepted only from Scan, never from links or pasted text), shows the same code, and waits for the user to approve. On an invite-only relay it uses its join code (only with its own relay) to admit the temporary mailboxes.
+2. The old device scans the QR (move codes are accepted only from Scan, never from links or pasted text), shows the same code, and waits for the user to approve. On an invite-only relay it admits the temporary mailboxes for an hour with `{"by": its mailbox secret, "temp": true}`, sent only to its own relay's exact address (older relays: its join code, only to its own host).
 3. The old device seals `{t: "link", data: accountBundle, ack: {r, b: ackBox, n: nonce}}` (`nonce` = 32 random bytes, hex) to `E.pub` with the envelope's outer layer, delivers it, and waits up to 2 minutes for a message in `ackBox` that starts with `nonce`.
 4. The new device opens the bundle, asks the user to confirm which profile it is receiving, imports it, sends the acknowledgement (`nonce` followed by 64 random bytes; the relay never sees `nonce` in the clear, so it can't fake this), and sends `reset` to every contact.
 5. The old device erases itself only after the acknowledgement arrives.
@@ -178,4 +196,4 @@ Everything the app stores is in IndexedDB database `lullwire`, encrypted:
 
 ## Legacy and removal plan
 
-Code paths marked `LEGACY` in the source exist only to talk to, or import from, Hush Relay 0.5: v2 session openings and envelopes, 6-word recovery, `HUSH2`/`HUSH3` backups, the `hush2` database migration, `HUSH_*` settings and `HUSH_CONFIG`. They are planned for removal in 0.8, once 0.5 apps are no longer in use; `tests/compat.test.js` checks them against a frozen copy of the 0.5 crypto core until then.
+Code paths marked `LEGACY` in the source exist only to talk to, or import from, Hush Relay 0.5: v2 session openings and envelopes, 6-word recovery, `HUSH2`/`HUSH3` backups, the `hush2` database migration, `HUSH_*` settings and `HUSH_CONFIG`. They are planned for removal in 0.9, once 0.5 apps are no longer in use; `tests/compat.test.js` checks them against a frozen copy of the 0.5 crypto core until then.

@@ -739,10 +739,10 @@ if (typeof document !== 'undefined') (() => {
     if (!isRelay(url)) return { ok: false, invite: false, calls: false, mail: false };
     try {
       const r = await fetch(url + '?a=info', { method: 'POST', headers: TP, body: '{}' });
-      if (!r.ok) return { ok: r.status === 400, invite: false, calls: false, mail: false };
+      if (!r.ok) return { ok: r.status === 400, invite: false, calls: false, mail: false, owner: false };
       const j = await r.json();
-      return { ok: true, invite: !!j.invite, calls: !!j.calls, mail: !!j.mail };
-    } catch { return { ok: false, invite: false, calls: false, mail: false }; }
+      return { ok: true, invite: !!j.invite, calls: !!j.calls, mail: !!j.mail, owner: !!j.owner };
+    } catch { return { ok: false, invite: false, calls: false, mail: false, owner: false }; }
   }
   // The live endpoint lives next to the relay: …/relay.php -> …/live, https -> wss.
   function liveURL(relay) {
@@ -753,7 +753,7 @@ if (typeof document !== 'undefined') (() => {
   }
 
   // ----- views -----
-  const views = ['vLock', 'vSetup', 'vList', 'vInvite', 'vAdd', 'vScan', 'vChat', 'vSafety', 'vPair', 'vLink', 'vSettings'];
+  const views = ['vLock', 'vSetup', 'vList', 'vInvite', 'vAdd', 'vScan', 'vChat', 'vSafety', 'vPair', 'vLink', 'vSettings', 'vOwner'];
   function show(v, title, sub) {
     for (const x of views) $('#' + x).hidden = x !== v;
     $('#title').textContent = title || 'Lullwire Relay';
@@ -831,7 +831,9 @@ if (typeof document !== 'undefined') (() => {
   // get forward secrecy).
   async function inviteLink() {
     const o = { p: me.pub, b: me.box, r: me.relay, n: me.name, k: me.inviteTok, q: await makeCard(me) };
-    if (me.join) o.j = me.join;
+    const one = me.owner ? await ownerInvite().catch(() => null) : null;
+    if (one) o.j = one.code;
+    else if (me.join) o.j = me.join;
     return linkBase(me.relay) + '#i=' + b64e(enc.encode(JSON.stringify(o)));
   }
   function readInvite(text) {
@@ -1285,7 +1287,7 @@ if (typeof document !== 'undefined') (() => {
   function runSend() {
     return new Promise(async resolve => {
       let ws, done = false;
-      const j = me.join ? await sha('lullwire-join|' + me.join) : undefined;
+      const j = me.memberKey ? await sha('lullwire-member|' + me.memberKey) : me.join ? await sha('lullwire-join|' + me.join) : undefined;
       const finish = () => {
         if (done) return; done = true; clearInterval(watch); clearTimeout(openTimer);
         if (mail.send === ws) mail.send = null;
@@ -1302,7 +1304,7 @@ if (typeof document !== 'undefined') (() => {
         if (typeof ev.data !== 'string') return;
         let m; try { m = JSON.parse(ev.data); } catch { return; }
         if (m.op === 'ready') { mail.send = ws; clearTimeout(openTimer); }
-        else if (m.op === 'error') finish();
+        else if (m.op === 'error') { if (/member key/.test(m.msg || '')) renewMembership(); finish(); }
         else if (m.op === 'put') { const res = mail.reqs.get(m.r); if (res) { mail.reqs.delete(m.r); res(!!m.ok); } }
       };
       ws.onclose = ws.onerror = finish;
@@ -1658,11 +1660,14 @@ if (typeof document !== 'undefined') (() => {
     $('#linkApprove').disabled = true; toast('Sending your profile…', 0);
     const ackSecret = hex(rand(32)), ackBox = (await sha(ackSecret)).slice(0, 32);
     try {
-      if (me.join) { // invite-only relays: admit the two temporary mailboxes used for the move
-        const join = (relay, s) => fetch(relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify({ s, code: me.join }) }).catch(() => {});
-        await join(me.relay, ackSecret);
-        // Your join code only ever goes to your own relay, never to one named in a scanned code.
-        if (isHex(o.s, 64) && new URL(o.r).host === new URL(me.relay).host) await join(o.r, o.s);
+      if (me.join || me.memberKey) { // invite-only relays: admit the two temporary mailboxes used for the move
+        // Relays from 0.8 admit them for an hour on our say-so ("by"); older ones need the join code.
+        // Our mailbox secret ("by") goes only to our own relay's exact address; the join code
+        // only to our own host. Never to a relay merely named in a scanned code.
+        const join = (relay, s, by) => fetch(relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify(by ? { s, code: me.join || undefined, by: me.secret, temp: true } : { s, code: me.join }) }).catch(() => {});
+        await join(me.relay, ackSecret, true);
+        if (isHex(o.s, 64) && sameRelay(o.r)) await join(o.r, o.s, true);
+        else if (isHex(o.s, 64) && me.join && new URL(o.r).host === new URL(me.relay).host) await join(o.r, o.s, false);
       }
       const ackNonce = hex(rand(32));
       const sealed = { t: 'link', data: await bundle(), ack: { r: me.relay, b: ackBox, n: ackNonce } };
@@ -1727,6 +1732,10 @@ if (typeof document !== 'undefined') (() => {
   async function openInvite() {
     show('vInvite', 'Invite');
     const link = await inviteLink();
+    const one = me.owner && me.ownerInvite;
+    $('#inviteOwnerNote').hidden = !one;
+    if (one) $('#inviteOwnerNote').textContent = 'As the relay owner, this link also lets one new person join your relay, until ' +
+      new Date(one.expires * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }) + '. Need another? Make a new link.';
     $('#inviteLink').value = link;
     renderQR($('#inviteQR'), link);
   }
@@ -1735,7 +1744,7 @@ if (typeof document !== 'undefined') (() => {
   $('#newInviteBtn').onclick = async e => {
     e.preventDefault();
     if (!confirm('Make a new invite link? People who use your old link will arrive as requests instead of contacts.')) return;
-    me.inviteTok = b64e(rand(12)); me.inviteUses = 0; await saveMe(); scheduleSync();
+    me.inviteTok = b64e(rand(12)); me.inviteUses = 0; me.ownerInvite = null; await saveMe(); scheduleSync();
     openInvite(); toast('New invite link ready');
   };
   $('#copyBtn').onclick = async () => { try { await copyText($('#inviteLink').value); toast('Invite link copied'); } catch { $('#inviteLink').select(); } };
@@ -1752,7 +1761,7 @@ if (typeof document !== 'undefined') (() => {
   $('#addScanBtn').onclick = openScanner;
   $('#scanBtn').onclick = openScanner;
   $('#settingsScanBtn').onclick = openScanner;
-  $('#back').onclick = () => { if (!$('#vSafety').hidden && current) return openChat(current); goHome(); };
+  $('#back').onclick = () => { if (!$('#vSafety').hidden && current) return openChat(current); if (!$('#vOwner').hidden) return $('#settingsBtn').onclick(); goHome(); };
   $('#scanFile').onchange = async e => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     try {
@@ -1771,7 +1780,8 @@ if (typeof document !== 'undefined') (() => {
     $('#myRelay').textContent = me.relay;
     $('#myCalls').textContent = me.calls ? 'Available' : 'Not supported by this relay';
     $('#myDelivery').textContent = mail.ws ? 'Live connection' : me.mail ? 'Live connection (reconnecting)' : 'Long-polling (this relay has no live connection)';
-    $('#myJoin').textContent = me.join || 'None (open relay)';
+    $('#myJoin').textContent = me.join || (me.memberKey ? 'None (invites only)' : 'None (open relay)');
+    $('#ownerWrap').hidden = !me.ownerApi;
     $('#myVault').textContent = vaultLabel();
     $('#myBuild').textContent = window.__lullwireBuild ? window.__lullwireBuild() : 'Version ' + $('#appVer').textContent;
     $('#lockOn').hidden = vaultHdr.mode !== 'pass'; $('#lockOff').hidden = vaultHdr.mode === 'pass';
@@ -1792,6 +1802,8 @@ if (typeof document !== 'undefined') (() => {
     const code = $('#newJoinIn').value.trim(); if (!code) return;
     const r = await fetch(me.relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret, code }) }).catch(() => null);
     if (!r || !r.ok) return alert(r && r.status === 403 ? 'That join code was not accepted.' : 'Could not reach your relay.');
+    // Relays from 0.8 renew members without a code and say whether this one still admits people.
+    if ((await r.json().catch(() => ({}))).code === false) return alert('That join code was not accepted.');
     me.join = code; await saveMe(); $('#myJoin').textContent = code; $('#newJoinIn').value = ''; toast('Join code saved');
   };
   $('#exportBtn').onclick = async () => {
@@ -1931,13 +1943,16 @@ if (typeof document !== 'undefined') (() => {
       const draft = await newIdentity(name, relay);
       if (info.invite) {
         const code = $('#joinIn').value.trim();
-        if (!code) { $('#joinWrap').hidden = false; return alert('This relay is invite-only. Enter its join code, or open an invite link from someone who uses it.'); }
+        if (!code) { $('#joinWrap').hidden = false; return alert('This relay is invite-only. Open an invite link from the person who runs it, or enter its join code.'); }
         const r = await fetch(relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify({ s: draft.secret, code }) });
-        if (r.status === 403) { $('#joinWrap').hidden = false; return alert('That join code was not accepted.'); }
+        if (r.status === 403) { $('#joinWrap').hidden = false; return alert('That join code or invite was not accepted. Invites to join a relay work once; ask the person who runs it for a new one.'); }
         if (!r.ok) return alert('Could not join the relay (' + r.status + '). Try again.');
-        draft.join = code;
+        const jr = await r.json().catch(() => ({}));
+        if (typeof jr.k === 'string') draft.memberKey = jr.k;
+        // A single-use invite is spent now; only keep a shared code that still admits people.
+        draft.join = jr.shared === false ? null : code;
       }
-      draft.calls = info.calls; draft.mail = info.mail;
+      draft.calls = info.calls; draft.mail = info.mail; draft.ownerApi = info.owner;
       draft.inviteTok = b64e(rand(12));
       if (has('setBackground')) draft.bg = true;
       await saveIdentity(draft.jwk); delete draft.jwk;
@@ -2007,17 +2022,164 @@ if (typeof document !== 'undefined') (() => {
   // Delivery path, for tests and Settings.
   window.__lullwireDelivery = () => mail.ws ? (mail.send ? 'socket' : 'socket (receiving)') : 'poll';
 
+  // Renewing membership also brings the current member key (it changes when the relay's
+  // owner removes someone) and tells us whether our shared join code still admits people.
+  let renewedAt = 0;
+  async function renewMembership(force) {
+    if (!me || (!force && Date.now() - renewedAt < 60000)) return;
+    renewedAt = Date.now();
+    try {
+      const r = await fetch(me.relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret, code: me.join || undefined }) });
+      if (!r.ok) return;
+      const j = await r.json().catch(() => ({}));
+      let dirty = false;
+      if (typeof j.k === 'string' && j.k !== me.memberKey) { me.memberKey = j.k; dirty = true; }
+      if (me.join && (j.shared === false || j.code === false)) { me.join = null; dirty = true; }
+      if (dirty) { await saveMe(); if (mail.send) mail.send.close(); }
+    } catch {}
+  }
+
+  // ----- relay owner dashboard -----
+  // Owner access is a random token kept only on this device (never in backups or
+  // moves); the relay stores its hash. Members are anonymous ids on the relay; names
+  // come from matching them against our own contacts here.
+  async function ownerCall(op, extra) {
+    const r = await fetch(me.relay + '?a=owner', { method: 'POST', headers: TP, body: JSON.stringify(Object.assign({ o: me.owner.tok, op }, extra || {})) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 403 && me.owner) { me.owner = null; me.ownerInvite = null; await saveMe(); throw new Error('This device is no longer the owner of this relay.'); }
+    if (!r.ok) throw new Error(j.error || ('the relay answered ' + r.status));
+    return j;
+  }
+  // The single-use invite this device hands out, reused until someone takes it.
+  async function ownerInvite() {
+    const cur = me.ownerInvite;
+    if (cur && cur.expires * 1000 > Date.now() + 86400000) {
+      const list = await ownerCall('invites');
+      if (list.invites.some(i => i.id === cur.id)) return cur;
+    }
+    const inv = await ownerCall('invite', { days: 7 });
+    me.ownerInvite = { code: inv.code, id: inv.id, expires: inv.expires };
+    await saveMe();
+    return me.ownerInvite;
+  }
+  const fmtBytes = n => n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : fmtSize(n);
+  const memberAlias = async box => (await sha('lullwire-member|' + box)).slice(0, 12);
+  const sameRelay = r => { try { return new URL(r).href === new URL(me.relay).href; } catch { return false; } };
+  const fmtDay = t => t ? new Date(t * 1000).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) : 'before 0.8';
+  function fmtAgo(t) {
+    const s = Math.max(0, Date.now() / 1000 - t);
+    return s < 120 ? 'just now' : s < 7200 ? Math.round(s / 60) + ' min ago' : s < 172800 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' days ago';
+  }
+  function fmtUptime(s) {
+    const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+    return d ? d + ' d ' + h + ' h' : h ? h + ' h ' + m + ' min' : m + ' min';
+  }
+  const li = (main, sub, btn) => {
+    const el = document.createElement('li'), g = document.createElement('div'); g.className = 'grow';
+    const a = document.createElement('div'); a.textContent = main; g.append(a);
+    if (sub) { const b = document.createElement('div'); b.className = 'small muted'; b.textContent = sub; g.append(b); }
+    el.append(g); if (btn) el.append(btn);
+    return el;
+  };
+  const smallBtn = (text, fn, danger) => { const b = document.createElement('button'); b.className = 'btn' + (danger ? ' danger' : ''); b.textContent = text; b.onclick = fn; return b; };
+  async function openOwner() {
+    show('vOwner', 'Owner dashboard', new URL(me.relay).host);
+    $('#ownerClaim').hidden = !!me.owner; $('#ownerDash').hidden = !me.owner;
+    if (me.owner) await loadOwner();
+  }
+  async function loadOwner() {
+    let st, mem, inv;
+    try { [st, mem, inv] = await Promise.all([ownerCall('status'), ownerCall('members'), ownerCall('invites')]); }
+    catch (e) { alert(e.message); return openOwner(); }
+    const kv = $('#ownerServer'); kv.textContent = '';
+    const add = (k, v) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; dd.className = 'sans'; kv.append(dt, dd); };
+    add('Version', st.version);
+    add('Running for', fmtUptime(st.now - st.started));
+    add('Access', st.invite_only ? 'Invite-only' : 'Open (anyone with the address)');
+    add('Free disk', st.disk_free < 0 ? 'Unknown' : fmtBytes(st.disk_free));
+    $('#ownerRestartBtn').hidden = !st.restart;
+    const today = st.days.length ? st.days[st.days.length - 1] : {};
+    const stats = [
+      [st.invite_only ? st.members : '–', 'Members'], [st.active_1d, 'Active today'], [st.active_7d, 'Active this week'],
+      [today.joins || 0, 'Joined today'], [today.in || 0, 'Messages today'], [fmtBytes(today.bytes || 0), 'Data today'],
+      [st.pending.messages, 'Waiting messages'], [fmtBytes(st.pending.bytes), 'Waiting data'],
+      [st.live.mail, 'Connected now'], [st.live.calls, 'Calls now'], [st.backups, 'Recovery backups'], [st.invites, 'Open invites']];
+    const box = $('#ownerStats'); box.textContent = '';
+    for (const [v, k] of stats) { const d = document.createElement('div'); d.className = 'stat'; const b = document.createElement('b'), sp = document.createElement('span'); b.textContent = v; sp.textContent = k; d.append(b, sp); box.append(d); }
+    // Last 14 days, oldest first, with empty days filled in.
+    const byDay = new Map(st.days.map(d => [d.d, d.in])), bars = $('#ownerDays'); bars.textContent = '';
+    const days = [...Array(14)].map((_, i) => new Date(st.now * 1000 - (13 - i) * 86400000).toISOString().slice(0, 10));
+    const peak = Math.max(1, ...days.map(d => byDay.get(d) || 0));
+    for (const d of days) { const n = byDay.get(d) || 0, b = document.createElement('i'); b.style.height = Math.max(3, Math.round(n / peak * 100)) + '%'; if (!n) b.className = 'zero'; b.title = d + ': ' + n; bars.append(b); }
+    // Shared join code.
+    $('#ownerSharedWrap').hidden = !st.invite_only;
+    $('#ownerSharedIn').checked = !!st.shared;
+    $('#ownerSharedHint').textContent = st.shared
+      ? 'On: anyone with the code (it travels in older invites and shows in members\' settings) can join, including people you removed. Turn it off to admit people only through single-use invites.'
+      : 'Off: people join only through single-use invites. Everyone already here stays.';
+    // Open invites.
+    const il = $('#ownerInvites'); il.textContent = '';
+    if (!inv.invites.length) { const e = document.createElement('li'); e.className = 'empty'; e.textContent = 'No open invites.'; il.append(e); }
+    for (const i of inv.invites) {
+      const mine = me.ownerInvite && me.ownerInvite.id === i.id;
+      il.append(li((mine ? 'Your current invite link' : 'Invite') + ', made ' + fmtDay(i.created), 'Works once, until ' + fmtDay(i.expires),
+        smallBtn('Revoke', async () => {
+          if (!confirm('Revoke this invite? Nobody will be able to join with it.')) return;
+          try { await ownerCall('revoke', { id: i.id }); if (mine) { me.ownerInvite = null; await saveMe(); } loadOwner(); } catch (e) { alert(e.message); }
+        })));
+    }
+    // Members, named from our contacts where we can.
+    const names = new Map([[await memberAlias(me.box), 'You']]);
+    for (const c of contacts.values()) if (c.box && sameRelay(c.relay)) names.set(await memberAlias(c.box), c.name);
+    const ml = $('#ownerMembers'); ml.textContent = '';
+    if (!mem.members.length) { const e = document.createElement('li'); e.className = 'empty'; e.textContent = st.invite_only ? 'No members yet.' : 'An open relay has no member list.'; ml.append(e); }
+    mem.members.forEach((m, n) => {
+      const name = names.get(m.id), self = name === 'You';
+      const sub = 'Joined ' + fmtDay(m.joined) + ' · seen ' + fmtAgo(m.seen) + (m.waiting ? ' · ' + fmtSize(m.waiting) + ' waiting' : '');
+      ml.append(li(name || 'Member ' + (n + 1), sub, self ? null : smallBtn('Remove', async () => {
+        if (!confirm('Remove ' + (name || 'this member') + ' from your relay? Their account here and any waiting messages are deleted, and they can\'t come back without a new invite' + ($('#ownerSharedIn').checked ? ' (or the shared join code, which is still on)' : '') + '.')) return;
+        try { await ownerCall('remove', { id: m.id }); toast('Removed'); loadOwner(); } catch (e) { alert(e.message); }
+      }, true)));
+    });
+  }
+  $('#ownerBtn').onclick = openOwner;
+  $('#ownerClaimBtn').onclick = async () => {
+    const code = $('#ownerCodeIn').value.trim(); if (!code) return;
+    const tok = hex(rand(32));
+    const r = await fetch(me.relay + '?a=owner', { method: 'POST', headers: TP, body: JSON.stringify({ op: 'claim', code, h: await sha('lullwire-owner|' + tok) }) }).catch(() => null);
+    if (!r || !r.ok) return alert(r && r.status === 429 ? 'Too many attempts. Try again in an hour.' : r ? 'That owner code was not accepted. Codes work once, for 30 minutes.' : 'Could not reach your relay.');
+    me.owner = { tok }; me.ownerInvite = null; await saveMe();
+    $('#ownerCodeIn').value = ''; toast('This device is now the relay owner');
+    openOwner();
+  };
+  $('#ownerRefreshBtn').onclick = loadOwner;
+  $('#ownerSharedIn').onchange = async e => {
+    const on = e.target.checked;
+    if (!on && !confirm('Turn off the shared join code? From now on people join only through single-use invites. Everyone already here stays.')) { e.target.checked = true; return; }
+    try { await ownerCall('shared', { on }); toast(on ? 'Shared join code on' : 'Shared join code off'); } catch (err) { alert(err.message); }
+    loadOwner();
+  };
+  $('#ownerRestartBtn').onclick = async () => {
+    if (!confirm('Restart the relay? Everyone is disconnected for a moment and reconnects on their own.')) return;
+    try { await ownerCall('restart'); toast('Restarting…'); setTimeout(() => { if (!$('#vOwner').hidden) loadOwner(); }, 4000); } catch (e) { alert(e.message); }
+  };
+  $('#ownerForgetBtn').onclick = async e => {
+    e.preventDefault();
+    if (!confirm('Remove owner access from this device? To get it back you need a new code from the server.')) return;
+    me.owner = null; me.ownerInvite = null; await saveMe(); openOwner();
+  };
+
   async function keepPrekeysFresh() { if (me && await rotatePrekeys(me)) await saveMe(); }
   function start() {
     goHome(); handleHash();
     if (started) return; started = true;
     // Invite-only relays expire memberships nobody renews; renew ours quietly on every start.
-    if (me.join) fetch(me.relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret, code: me.join }) }).catch(() => {});
+    renewMembership(true);
     if (has('setBackground')) AND.setBackground(me.bg !== false);
     keepPrekeysFresh(); setInterval(keepPrekeysFresh, 6 * 3600000);
     // Learn what the relay supports (live connection, calls) before choosing how to receive.
     relayInfo(me.relay).then(async info => {
-      if (info.ok && (info.calls !== !!me.calls || info.mail !== !!me.mail)) { me.calls = info.calls; me.mail = info.mail; await saveMe(); }
+      if (info.ok && (info.calls !== !!me.calls || info.mail !== !!me.mail || info.owner !== !!me.ownerApi)) { me.calls = info.calls; me.mail = info.mail; me.ownerApi = info.owner; await saveMe(); }
     }).catch(() => {}).finally(() => { liveLoop(); sendLoop(); });
     // After an update from 0.5, sessions were renewed: tell each contact.
     for (const c of contacts.values()) if (c.needReset) {

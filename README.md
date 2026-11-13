@@ -50,7 +50,8 @@ For people at risk, the guide explains a [hidden setup](docs/SELF-HOSTING.md#hid
 - **Encrypted on the device:** messages, contacts and keys are stored encrypted. On Android the key sits in the phone's secure Keystore; anywhere, an optional **app lock** passphrase protects them.
 - **Files:** send photos, documents and anything else up to 16 MB, end-to-end encrypted like messages. Photos get a preview; the recipient's app checks every file against its SHA-256 before showing it.
 - **Voice and video calls:** encrypted end to end with a fresh key per call, carried over your relay's HTTPS connection. No peer-to-peer link, so neither side sees the other's IP address.
-- **Private relay:** a hidden path with a plain front page, and invite-only mode so strangers can't use your server. Invite links carry the join code, so friends just tap and start.
+- **Private relay:** a hidden path with a plain front page, and invite-only mode so strangers can't use your server. Invite links carry what's needed to join, so friends just tap and start.
+- **Owner dashboard:** see how many people use your relay and how actively, make single-use invites, remove someone, and restart the relay, all from your app. Members are anonymous ids to the relay; your app names the ones in your contacts.
 - **Android app:** a small APK (no app store, no Google services) built with the plain SDK tools; it blocks screenshots and keeps keys out of cloud backups.
 - **Live delivery over one connection:** a single long-lived HTTPS (WebSocket) connection to your relay carries messages in both directions, like any mainstream chat app. Optional **cover traffic** hides when you're actually sending. Messages wait up to 14 days on the relay while you're offline.
 - **Background delivery on Android:** messages and calls arrive while the app is closed, with no Google services or push servers. Notifications show no names unless you turn them on.

@@ -161,3 +161,19 @@ code,.code{font-family:var(--mono)}
 .more{align-self:center;border:1px solid var(--line-2);background:var(--surface);border-radius:999px;padding:4px 14px;font-size:13px;color:var(--muted);margin-bottom:6px}
 .lock{max-width:380px;margin:0 auto;padding:40px 16px;text-align:center}
 .lock input{text-align:center}
+
+/* Owner dashboard */
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.stat{background:var(--surface-2);border-radius:var(--radius-s);padding:10px 12px}
+.stat b{display:block;font-size:22px;font-weight:700;line-height:1.2}
+.stat span{font-size:12px;color:var(--muted)}
+.days{display:flex;align-items:flex-end;gap:4px;height:72px;margin-top:8px}
+.days i{flex:1;min-height:2px;background:var(--accent);border-radius:3px 3px 0 0;opacity:.85}
+.days i.zero{background:var(--line-2)}
+.olist{list-style:none;margin:0;padding:0}
+.olist li{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.olist li:first-child{border-top:0}
+.olist li .grow{flex:1;min-width:0}
+.olist li .btn{min-height:36px;padding:0 10px}
+.olist .empty{color:var(--muted);font-size:14px}
+code.cmd{display:block;padding:8px 10px;background:var(--surface-2);border-radius:var(--radius-s);word-break:break-all}

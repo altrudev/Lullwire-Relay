@@ -174,6 +174,26 @@ With a **private path** and a **join code** (the wizard sets both), the relay lo
 
 To set them by hand: `lullwire-relay -new-path` prints a random path and code; use them with `-path` and `-join-code`.
 
+### The owner dashboard
+
+As the person who runs the relay, you can see how it's used and manage it from your app: **Settings → Owner dashboard**.
+
+1. On the server, run the relay program with its usual settings plus `-owner-code`, as the same user that runs the relay:
+   ```bash
+   lullwire-relay -config /etc/lullwire-relay.conf -owner-code   # or: -data /path/to/data -owner-code
+   ```
+   It prints a code that works once, for 30 minutes. The running relay doesn't need a restart.
+2. In the app, open **Settings → Owner dashboard**, enter the code and tap **Make this device the owner**.
+
+The dashboard shows how many people use the relay and how actively, messages and data per day, waiting mail, storage and live connections. From it you can:
+
+- **Invite people one at a time.** Your **Invite someone** link now lets one new person join, once, within 7 days; open invites are listed and can be revoked.
+- **Switch the shared join code off.** Then people join only through your single-use invites, and links your members share add them as contacts without letting anyone join. Everyone already on the relay stays.
+- **Remove someone.** Their account here and their waiting mail are deleted and they're disconnected; they can't come back without a new invite from you (or the shared code, if it's still on).
+- **Restart the relay.** It restarts in place, which also starts an updated program if you replaced the file.
+
+Members appear under anonymous ids; your app shows names for the people in your own contacts. Names never reach the relay. Owner access belongs to one device and isn't included in backups or moves: on a new phone, run `-owner-code` again (a new code replaces the old owner device). The dashboard needs the Go relay; the single PHP file doesn't have it.
+
 **Calls and bandwidth:** a video call uses about 0.7 Mbit/s in each direction per person, all through the relay. The smallest VPS handles several calls at once.
 
 **Moving from the single file:** point `-data` at the old data folder; waiting mail and recovery backups carry over.

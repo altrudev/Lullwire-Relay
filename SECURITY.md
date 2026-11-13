@@ -51,11 +51,12 @@ Please report privately through GitHub's **Report a vulnerability** button (the 
 12. **Some sizes are only roughly hidden.** Messages are padded to size classes; recovery slots and moved profiles go up in 16 KiB steps, which still hints at the size of your contact list.
 13. **6-word recovery sets are weaker.** Words made before 0.6 carry 66 bits and share one salt, so a relay holding many slots can test a guess against all of them at once. New sets have 8 words (88 bits); Settings offers to replace old ones.
 14. **Messages with Hush Relay 0.5 contacts** use the v2 format, where the sender's mailbox, relay and name are protected by the outer layer only, not bound into the ratchet. v4 binds them.
-15. **Invite links can be forwarded.** Anyone holding your link can add you and, on an invite-only relay, join it. The first 25 people are added as contacts; later ones arrive as requests. Make a new link from the invite screen if one spreads too far.
+15. **Invite links can be forwarded.** Anyone holding your link can add you as a contact: the first 25 people directly, later ones as requests. Make a new link from the invite screen if one spreads too far. Whether a link lets someone *join* an invite-only relay depends on the relay's owner: an owner's invite admits one person, once, within 7 days; the shared join code (in older invites and in every member's settings) admits anyone who has it until the owner switches it off.
 16. **One key, two uses.** The identity key does both ECDH and ECDSA (signing prekeys and cards), as Signal's XEdDSA does with its identity key. This relies on the joint security of the two schemes on one key, which is studied and believed sound but is an assumption.
 17. **Storage in a plain browser.** Without an app lock, a browser keeps the vault key next to the data (browsers have no safer place), so someone who copies the browser profile can read it. Turn on the app lock, or use the Android app. An app-lock passphrase can be guessed offline from copied files (PBKDF2, 600 000 rounds per guess), so choose a long one.
 18. **Background mode on Android** keeps the app running while closed and shows a "connected" notification. With an app lock on, nothing is received after a restart until you unlock. Message notifications show no names or text unless you turn names on.
 19. **No independent cryptographic review yet.**
+20. **The relay owner sees how the relay is used**, as any relay host could: how many members, when each joined and was last active, how much mail waits for each, daily counts, live connections. Members appear under anonymous ids; the owner's app names those that are its own contacts, on the device. The owner can remove members and restart the relay, not read anything. Owner access is a token held by one device (not in backups or moves) and claimed with a one-time code from the server, so anyone who controls the server can take it over; that person could read the data folder anyway.
 
 ## Deployment checklist
 
@@ -68,6 +69,7 @@ Please report privately through GitHub's **Report a vulnerability** button (the 
 - Turn off access logs you don't need.
 - Behind a Tor onion service, run the Go relay with `-onion`; otherwise every visitor shares one client identity for rate limits. Back up the onion service's key folder and keep it private.
 - Use the private setup: `-path` and `-join-code`. Share the app only through invites.
+- Claim the owner dashboard (`lullwire-relay -owner-code`), then switch the shared join code off, so people join only through your single-use invites and removing someone keeps them out.
 - Maintainers: keep the web release signing key (`~/.lullwire-relay/web-signing.pem`) and the Android signing key (`~/.lullwire-relay/release.jks`) offline and backed up; publish the APK's SHA-256 and certificate fingerprint and the release key fingerprint with each release ([RELEASING.md](docs/RELEASING.md)).
 - Keep the host patched. For a phone relay, use a device that still gets security updates.
 
@@ -190,3 +192,15 @@ The same reviewer re-tested every fix with its proofs of concept; all held. It f
 | 65 | Low–Medium | Behind Tor, one anonymous client could use up the relay-wide budget for new live connections | Send connections on invite-only relays prove the join code; the relay-wide budget is charged only after every other check |
 | 66 | Low | A move from the 0.5 database that kept failing (a full device) left the app on a blank screen | The reason is shown, and the old data is kept |
 | 67 | Info | The send connection opened and closed together with the mail connection; a missing cached file was never fetched again | Its own random schedule; the service worker re-fetches the current signed release |
+
+### 2026-11-13: audit of 0.7.1 and review of the owner dashboard (0.7.2, 0.8)
+
+An internal audit of the 0.7.1 release (all test suites, the Go and PHP relays, the release signing and update path, the page security headers) before publishing it, then a review of the owner dashboard with its own tests (unit, race detector, mutation checks of the invite and key-rotation tests, and a browser test of the whole flow):
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 68 | Medium | PHP relay: a mailbox holding more than about 30 MiB (possible since 0.7.0's 48 MiB limit) made every fetch exceed a 128 MB `memory_limit`, so the owner received nothing until the mail expired. Anyone who knows a mailbox could cause it | Fetches return about 2 MiB at a time, like the Go relay (0.7.2) |
+| 69 | Low | PHP relay: parallel deliveries to one mailbox could pass its 48 MiB limit | Deliveries to a mailbox are written one at a time (0.7.2) |
+| 70 | Medium | Renewing a membership needed the current join code, so changing the code would have dropped every existing member after 180 days | Members renew with their mailbox secret alone (0.8) |
+| 71 | Low | With single-use invites, the move to a new device would have sent the member's mailbox secret to any relay on the same host named in a scanned code | Only to the member's own relay's exact address (0.8) |
+| 72 | Info | Owner requests answered differently with and without an owner, telling anyone with the address whether the relay was claimed | The same answer either way (0.8) |

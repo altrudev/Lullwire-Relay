@@ -99,6 +99,7 @@
       <button id="copyBtn" class="btn">Copy link</button>
     </div>
     <textarea id="inviteLink" rows="3" readonly class="link-input mt14"></textarea>
+    <p id="inviteOwnerNote" class="small muted mt10" hidden></p>
     <p class="small muted mt10">After they join, compare your safety code once in person or on a call.</p>
     <p class="small muted mt6">This link adds up to 25 people straight to your contacts; after that, people who use it arrive as requests. Posted it somewhere too public? <a href="#" id="newInviteBtn">Make a new link</a>.</p>
   </div></section>
@@ -172,6 +173,45 @@
   </div></section>
 
   <!-- Settings -->
+  <section id="vOwner" class="view" hidden><div class="narrow pad">
+    <div id="ownerClaim" hidden>
+      <p class="muted">If you run this relay, the owner dashboard shows how it's used and lets you remove people, make single-use invites and restart it.</p>
+      <div class="card">
+        <p class="small">On your server, run the relay program with its usual settings plus <code>-owner-code</code>, for example:</p>
+        <p class="small"><code class="cmd">lullwire-relay -config /etc/lullwire-relay.conf -owner-code</code></p>
+        <label for="ownerCodeIn">Owner code</label>
+        <input id="ownerCodeIn" autocomplete="off" autocapitalize="none" spellcheck="false">
+        <p class="mt10"><button id="ownerClaimBtn" class="btn primary">Make this device the owner</button></p>
+        <p class="small muted mt8">The code works once, for 30 minutes. Only this device gets owner access; a new code moves it to another device.</p>
+      </div>
+    </div>
+    <div id="ownerDash" hidden>
+      <h3>Server</h3>
+      <div class="card">
+        <dl class="kv" id="ownerServer"></dl>
+        <div class="row mt12"><button id="ownerRefreshBtn" class="btn">Refresh</button><button id="ownerRestartBtn" class="btn">Restart relay</button></div>
+      </div>
+      <h3>Usage</h3>
+      <div class="card">
+        <div id="ownerStats" class="stats"></div>
+        <p class="small muted mt14">Messages delivered to this relay per day (last 14 days)</p>
+        <div id="ownerDays" class="days" aria-label="Messages per day"></div>
+      </div>
+      <h3>Invites</h3>
+      <div class="card">
+        <p class="small muted">Each <b>Invite someone</b> link you share lets one new person join this relay, once, within 7 days. Links your members share add them as contacts, but don't let anyone join.</p>
+        <label class="toggle mt10" id="ownerSharedWrap"><span><strong>Shared join code</strong><span class="small muted block" id="ownerSharedHint"></span></span><input type="checkbox" id="ownerSharedIn"></label>
+        <ul id="ownerInvites" class="olist mt10"></ul>
+      </div>
+      <h3>Members</h3>
+      <div class="card">
+        <p class="small muted">Names come from the contacts on this device. The relay only knows anonymous ids.</p>
+        <ul id="ownerMembers" class="olist mt10"></ul>
+      </div>
+      <p class="mt18 small"><a href="#" id="ownerForgetBtn">Remove owner access from this device</a></p>
+    </div>
+  </div></section>
+
   <section id="vSettings" class="view" hidden><div class="narrow pad">
     <div class="card me-card">
       <span id="meAvatar" class="avatar lg"></span>
@@ -234,6 +274,7 @@
         <input id="newJoinIn" autocomplete="off" autocapitalize="none" spellcheck="false">
         <p class="mt8"><button id="saveJoinBtn" class="btn">Save</button></p>
       </details>
+      <p class="mt12" id="ownerWrap" hidden><button id="ownerBtn" class="btn">Owner dashboard</button></p>
     </div>
 
     <h3>Backup file</h3>
@@ -250,7 +291,7 @@
     <h3>Danger zone</h3>
     <div class="card"><button id="wipeBtn" class="btn danger">Erase everything on this device</button></div>
 
-    <p class="small muted foot">Lullwire Relay <span id="appVer">0.7.2</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
+    <p class="small muted foot">Lullwire Relay <span id="appVer">0.8.0</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
       <a href="https://github.com/altrudev/Lullwire-Relay" target="_blank" rel="noopener noreferrer">Source code</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></p>

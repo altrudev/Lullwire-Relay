@@ -312,11 +312,7 @@ func (r *Relay) owner(w http.ResponseWriter, req *http.Request) {
 		}
 		r.allow("owner-bad", key, time.Hour, ownerFailsHour)
 		r.allow("owner-bad-all", "all", time.Hour, ownerFailsAll)
-		if h == "" {
-			fail(w, 403, "no owner")
-		} else {
-			fail(w, 403, "not the owner")
-		}
+		fail(w, 403, "not the owner") // the same whether or not the relay has an owner yet
 		return
 	}
 	switch op {

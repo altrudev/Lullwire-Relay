@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 (2026-11-13): owner dashboard and single-use invites
+- **Owner dashboard** (Go relay), in **Settings → Owner dashboard**: run `lullwire-relay -owner-code` on the server and enter the code in the app. It shows members, activity today and this week, messages and data per day (last 14 days), waiting mail, recovery backups, live connections and calls, free disk, and the relay's version and uptime
+- **Single-use invites:** the owner's **Invite someone** link lets one new person join, once, within 7 days. Open invites can be revoked
+- **Shared join code on/off:** with it off, people join only through the owner's invites, and members' invite links add contacts without letting anyone join. Everyone already on the relay stays
+- **Remove a member:** their membership and waiting mail are deleted, their connections closed, and they can't come back without a new invite
+- **Restart** from the app: a graceful restart in place (same process), which also starts an updated relay program
+- Members are anonymous ids to the relay (`SHA-256("lullwire-member|" + mailbox)`); the owner's app names the ones in its own contacts. Owner access is a token on one device, never in backups or moves; the relay keeps only its hash
+- **Member key:** send connections now prove a key every member gets when joining or renewing, instead of the shared join code, and removing a member changes it. Apps before 0.8 keep working (their send connection falls back to HTTPS when the shared code is off)
+- **Fix:** renewing a membership no longer needs the current join code, so changing the code can't drop existing members after 180 days
+- Moving to a new device works with the shared code off: the member admits the two temporary mailboxes for an hour (at most 6 per hour), sending its mailbox secret only to its own relay's exact address
+- Daily counts and last-seen times survive restarts (`stats.json`; member files record when they joined)
+- `LEGACY` code for Hush Relay 0.5 is now planned for removal in 0.9
+- Tests: owner claim, guessing limits, single-use invites, shared code off, member key and removal, temporary mailboxes, status counts, restart (Go unit tests, with the race detector and mutation checks); a browser test of the whole owner flow, including a profile move and a restart in place
+
 ## 0.7.2 (2026-11-13): PHP relay delivers large mailboxes in parts
 - **Fix (PHP relay and single file):** a mailbox holding more than about 30 MiB (two files sent to someone offline, or deliberately filled by anyone who knows the mailbox) made every fetch run out of PHP's usual 128 MB `memory_limit`, so the owner received nothing until the mail expired after 14 days. The relay now hands out mail in parts of about 2 MiB, like the Go relay, and the app collects the rest on its next request. Introduced in 0.7.0 with the 48 MiB mailbox limit
 - PHP relay: deliveries to one mailbox are written one at a time, so parallel uploads can't exceed its 48 MiB limit
