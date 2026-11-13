@@ -45,6 +45,7 @@ const MAX_PER_BOX  = 500;           // pending messages per mailbox
 const MAX_BOX_BYTES = 50331648;     // 48 MiB pending per mailbox (room for a 16 MiB file sent as pieces)
 const TTL          = 1209600;       // 14 days, then undelivered blobs are wiped
 const SLOT_TTL     = 15552000;      // 180 days untouched, then recovery slots are wiped
+const MAX_DELIVER  = 2097152;       // raw bytes of mail returned per get (as the Go relay); the app fetches the rest next
 const MAX_WAIT     = 20;            // seconds a live (long-poll) request may wait
 const MIN_FREE     = 268435456;     // refuse new data below 256 MiB free disk
 const PUTS_PER_MIN = 120;           // per client IP
@@ -181,6 +182,10 @@ if ($a === 'put' || $a === 'send') {
     if ($body === false || strlen($body) < MIN_BLOB || strlen($body) > MAX_BLOB) fail(413, 'bad size');
     $dir = DATA . '/' . $box;
     if (!is_dir($dir)) @mkdir($dir, 0700);
+    // One writer per mailbox at a time, so parallel uploads can't overshoot the quota.
+    // The lock file lives with the rate counters, so an empty mailbox folder can still be swept.
+    $lock = @fopen(LIMITS . '/box-' . $box, 'c');
+    if ($lock) { flock($lock, LOCK_EX); @touch(LIMITS . '/box-' . $box); }
     $files = glob($dir . '/*.m') ?: [];
     if (count($files) >= MAX_PER_BOX) fail(429, 'box full');
     $bytes = 0; foreach ($files as $f) $bytes += (int)@filesize($f);
@@ -188,6 +193,7 @@ if ($a === 'put' || $a === 'send') {
     $id = sprintf('%010d', time()) . bin2hex(random_bytes(6));
     file_put_contents("$dir/$id.tmp", $body);
     rename("$dir/$id.tmp", "$dir/$id.m");
+    if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
     ok();
 }
 
@@ -246,10 +252,14 @@ if ($a === 'get') {
         if ($files || microtime(true) >= $end || connection_aborted()) break;
         usleep(400000);
     }
-    $out = [];
+    // Oldest first, at most 100 envelopes and about MAX_DELIVER bytes (always at least one),
+    // so a full 48 MiB mailbox never has to fit in PHP's memory_limit in one response.
+    $out = []; $total = 0;
     foreach ($files as $f) {
+        if ($out && $total + (int)@filesize($f) > MAX_DELIVER) break;
         $data = @file_get_contents($f);
         if ($data === false) continue;
+        $total += strlen($data);
         $out[] = ['id' => basename($f, '.m'), 'd' => base64_encode($data)];
         if (count($out) >= 100) break;
     }

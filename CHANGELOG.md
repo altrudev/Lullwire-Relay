@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.2 (2026-11-13): PHP relay delivers large mailboxes in parts
+- **Fix (PHP relay and single file):** a mailbox holding more than about 30 MiB (two files sent to someone offline, or deliberately filled by anyone who knows the mailbox) made every fetch run out of PHP's usual 128 MB `memory_limit`, so the owner received nothing until the mail expired after 14 days. The relay now hands out mail in parts of about 2 MiB, like the Go relay, and the app collects the rest on its next request. Introduced in 0.7.0 with the 48 MiB mailbox limit
+- PHP relay: deliveries to one mailbox are written one at a time, so parallel uploads can't exceed its 48 MiB limit
+- Tests: a mailbox of 12 pieces of 400 KB is delivered in parts on every relay (Go, PHP, single file)
+
 ## 0.7.1 (2026-11-04): reloads on hosts that redirect index.html
 - **Fix:** on web hosting whose `.htaccess` redirects `…/index.html` to `…/` (a common "one address per page" rule), the installed app stored a redirected copy of its start page, and browsers refuse to open a page from one: every reload failed with a network error, including the sign-out after moving a profile to a new device. The app now stores a clean copy of each verified file. Found by running the browser test against the single file on lullwire.com
 - Tests: the single-file suite runs behind such a redirect; the browser test recognises the deliberate relay probes over HTTP/2

@@ -95,6 +95,21 @@ for p in data/ data/recover/ .htaccess scripts/router.php embed.go; do
 done
 [ -z "$(ls -A web | grep -x data || true)" ] && echo "  ok   no data written inside web/" || { echo "  FAIL data inside web/"; exit 1; }
 fi
+# A mailbox with more waiting than one response should carry (files sent to someone offline)
+# is handed out in parts of about 2 MiB, so the PHP relay stays within a host's memory_limit.
+sec=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n'); box=$(printf %s "$sec" | sha256sum | cut -c1-32)
+{ printf %s "$box"; head -c 400000 /dev/urandom; } >"$TMP/piece"
+for i in $(seq 12); do curl -sf -o /dev/null -X POST "$RURL?a=send" --data-binary @"$TMP/piece" || { echo "  FAIL send piece $i"; exit 1; }; done
+parts=""; left=12
+while [ "$left" -gt 0 ]; do
+  curl -sf -X POST "$RURL?a=get" -d "{\"s\":\"$sec\"}" >"$TMP/got" || { echo "  FAIL get after$parts"; exit 1; }
+  n=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$TMP/got")
+  ids=$(python3 -c 'import json,sys; print(json.dumps([x["id"] for x in json.load(open(sys.argv[1]))]))' "$TMP/got")
+  { [ "$n" -ge 1 ] && [ "$n" -le 5 ]; } || { echo "  FAIL get returned $n pieces of 400 KB (cap is about 2 MiB)"; exit 1; }
+  curl -sf -o /dev/null -X POST "$RURL?a=ack" -d "{\"s\":\"$sec\",\"ids\":$ids}"
+  parts="$parts $n"; left=$((left - n))
+done
+echo "  ok   large mailboxes are delivered in parts ($parts )"
 curl -sL -D - -o /dev/null "${APP}index.html" | grep -qi "frame-ancestors 'none'" && echo "  ok   pages refuse to be framed" || { echo "  FAIL no frame-ancestors header"; exit 1; }
 # New recovery slots are rate limited per client (5 per day).
 codes=""
