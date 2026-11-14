@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.2 (2026-11-14): iPhone Home Screen without losing your profile
+- **iPhone and iPad keep Safari's data apart from the Home Screen app**, so a profile made in Safari wasn't in the Home Screen app, which started empty. Now Safari says so before you make a profile, sends you to the Home Screen first, and copies your invite link to paste there (links always open in Safari, so an invite can't follow by itself)
+- With a profile already in Safari, the install card explains how to move it into the Home Screen app on the same phone (Move it here there, a screenshot of the code, then Scan, Choose a picture in Safari); the move screen in the Home Screen app says the same
+- Tests: the iPhone advice, the copied invite, pasting it during setup, and the install card's steps
+
 ## 0.8.1 (2026-11-14): installing, sounds, message times and an easier move
 - **Install Lullwire:** when the browser can install the app (Chrome, Edge, Samsung Internet, Android), the chat list offers it with an **Install** card that opens the browser's dialog; on iPhone and iPad the card shows the Safari steps (Share, Add to Home Screen). **Not now** hides it; **Settings → Install Lullwire on this device** still offers it. Never shown in the Android app or once installed. The web manifest gains an `id`
 - **Sounds:** a chime when a message arrives that isn't on screen, and ringing for incoming calls until they're answered or declined. On by default; **Settings → Sounds** turns them off. The Android app's notifications keep Android's own sounds

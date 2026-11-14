@@ -189,3 +189,8 @@ ol.steps li{margin:4px 0}
 .install-card .grow{flex:1;min-width:0}
 .install-card .btn{flex:none}
 .install-card .icon-btn{flex:none;width:34px;height:34px}
+
+/* iPhone: install before making a profile */
+.ios-first{margin-top:14px;padding:14px;border:1px solid var(--accent);border-radius:var(--radius);background:var(--surface-2)}
+.ios-first ol.steps{margin:8px 0}
+.ios-first .btn{min-height:34px;padding:0 10px}

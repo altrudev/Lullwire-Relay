@@ -40,6 +40,16 @@
       <h2>Private messages that stay between you</h2>
       <p>No phone number, no email, no account to hand over. Your keys are made on this device.</p>
     </div>
+    <div id="iosFirst" class="ios-first" hidden>
+      <strong>On iPhone, add Lullwire to your Home Screen first</strong>
+      <p class="small mt4">Safari and the Home Screen app keep separate data: a profile made here in Safari won't be in the Home Screen app, which would start empty.</p>
+      <ol class="steps small">
+        <li id="iosCopyStep" hidden><button id="iosCopyBtn" class="btn">Copy your invite link</button> to paste it there.</li>
+        <li>Tap <b>Share</b>, then <b>Add to Home Screen</b>.</li>
+        <li>Open Lullwire from your Home Screen<span id="iosPasteStep" hidden> and paste the invite link</span>, then create your profile there.</li>
+      </ol>
+      <p class="small"><a href="#" id="iosStay">Use it in Safari instead</a></p>
+    </div>
     <div id="invitedBy" class="invited" hidden><span id="invitedAvatar" class="avatar"></span><div><strong id="invitedName"></strong><div class="small muted">invited you. Create your profile to start talking.</div></div></div>
     <div class="card mt18">
       <label for="nameIn">Your name</label>
@@ -171,6 +181,7 @@
       <li>Check that both show the same number below, then tap <b>Approve</b> there.</li>
     </ol>
     <p class="small muted">No camera there (a computer)? Take a screenshot of this code, get it onto that device, then tap <b>Scan</b>, <b>Choose a picture</b>.</p>
+    <p class="small muted" id="pairIosSafari" hidden>Moving from Safari on this iPhone? Take a screenshot of this code, switch to Safari, open Lullwire there and tap <b>Scan</b>, <b>Choose a picture</b>, and pick the screenshot. Then come back here.</p>
     <img id="pairQR" class="qr" alt="Move code">
     <p class="small muted">Your other phone must show this same number:</p>
     <div id="pairCode" class="code-big"></div>
@@ -315,7 +326,7 @@
     <h3>Danger zone</h3>
     <div class="card"><button id="wipeBtn" class="btn danger">Erase everything on this device</button></div>
 
-    <p class="small muted foot">Lullwire Relay <span id="appVer">0.8.1</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
+    <p class="small muted foot">Lullwire Relay <span id="appVer">0.8.2</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
       <a href="https://github.com/altrudev/Lullwire-Relay" target="_blank" rel="noopener noreferrer">Source code</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></p>

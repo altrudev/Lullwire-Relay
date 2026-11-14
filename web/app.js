@@ -1132,7 +1132,10 @@ if (typeof document !== 'undefined') (() => {
   addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('Lullwire is installed'); });
   function renderInstall() {
     const can = !installed() && (!!installEvt || iosInstall());
-    const hint = iosInstall() ? 'In Safari, tap Share, then Add to Home Screen. Then open Lullwire from its icon.' : 'Opens like an app from its own icon, works offline, and can notify you.';
+    // On iPhone the Home Screen app doesn't see Safari's data: say how to move the profile.
+    const hint = iosInstall()
+      ? 'Tap Share, then Add to Home Screen. The Home Screen app starts empty (Safari keeps its data apart), so open it, choose Move it here and take a screenshot of the code; then come back to Safari, tap Scan, Choose a picture.'
+      : 'Opens like an app from its own icon, works offline, and can notify you.';
     $('#installCard').hidden = !can || !me || !!me.installHide;
     $('#installHint').textContent = hint;
     $('#installBtn').hidden = !installEvt;
@@ -1149,6 +1152,23 @@ if (typeof document !== 'undefined') (() => {
   $('#installBtn').onclick = install;
   $('#installSetBtn').onclick = install;
   $('#installClose').onclick = async () => { me.installHide = true; await saveMe(); renderInstall(); };
+  // Before a profile exists, iPhone users in Safari are sent to the Home Screen first:
+  // a profile made in Safari stays in Safari. An invite can't follow by itself (links
+  // open in Safari), so it's copied for pasting there.
+  function renderIosFirst() {
+    const show = iosInstall() && !sessionStorageGet('iosStay');
+    $('#iosFirst').hidden = !show;
+    $('#iosCopyStep').hidden = $('#iosPasteStep').hidden = !pendingInvite;
+  }
+  function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+  $('#iosStay').onclick = e => { e.preventDefault(); try { sessionStorage.setItem('iosStay', '1'); } catch {} $('#iosFirst').hidden = true; };
+  $('#iosCopyBtn').onclick = async () => {
+    const raw = pendingInvite && pendingInvite.raw;
+    if (!raw) return;
+    const link = /^#/.test(raw) ? location.href.split('#')[0] + raw : raw;
+    try { await navigator.clipboard.writeText(link); toast('Invite link copied'); }
+    catch { prompt('Copy this invite link:', link); }
+  };
 
   // ----- sounds -----
   // A short chime for new messages and ringing for incoming calls, made with Web Audio
@@ -1762,6 +1782,7 @@ if (typeof document !== 'undefined') (() => {
   // New device: show a one-time QR holding a fresh public key and a mailbox to drop the profile into.
   let pairing = null;
   $('#pairBtn').onclick = async () => {
+    $('#pairIosSafari').hidden = !(isIOS && standalone()); // the profile may be in Safari on this same phone
     const relay = $('#relayIn').value.trim() || defaultRelay();
     if (!isRelay(relay)) return alert('Relay must be an https:// or .onion address');
     const kp = await genKP(), secret = hex(rand(32)), box = (await sha(secret)).slice(0, 32);
@@ -2061,6 +2082,7 @@ if (typeof document !== 'undefined') (() => {
   // ----- sign up -----
   let setupInfo = null;
   async function prepareSetup() {
+    renderIosFirst();
     const relay = $('#relayIn').value.trim() || defaultRelay();
     setupInfo = await relayInfo(relay);
     const fromInvite = pendingInvite && pendingInvite.j;
@@ -2077,7 +2099,7 @@ if (typeof document !== 'undefined') (() => {
       pendingInvite = Object.assign({ raw: text }, o);
       paintAvatar($('#invitedAvatar'), o.n, o.p);
       $('#invitedName').textContent = String(o.n || 'Someone').slice(0, 40);
-      $('#invitedBy').hidden = false; $('#pasteInviteWrap').hidden = true;
+      $('#invitedBy').hidden = false; $('#pasteInviteWrap').hidden = true; renderIosFirst();
       if (!$('#relayIn').value.trim() && isRelay(o.r)) $('#relayIn').value = o.r;
       return true;
     } catch { return false; }
