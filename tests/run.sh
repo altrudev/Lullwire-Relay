@@ -120,8 +120,15 @@ done
 echo "$codes" | grep -q 429 && echo "  ok   new recovery slots rate limited ($codes )" || { echo "  FAIL slot rate limit ($codes )"; exit 1; }
 # Behind a proxy, limits apply per real client: the 7th+ live connection from one client gets 429,
 # while another client behind the same proxy is unaffected.
-live() { curl -s -o /dev/null -w '%{http_code} ' -H "X-Forwarded-For: $1" -X POST "$RURL?a=get&wait=4" -d "{\"s\":\"$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')\"}"; }
-burst=$( (for i in 1 2 3 4 5 6 7 8; do live 198.51.100.7 & done; wait) )
+live() { curl -s -o /dev/null -w '%{http_code} ' -H "X-Forwarded-For: $1" -X POST "$RURL?a=get&wait=${3:-4}" -d "{\"s\":\"${2:-$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n')}\"}"; }
+# A mailbox that exists (one message sent, fetched and acknowledged), so each request
+# really waits: a relay answers never-used mailboxes within 3 s, which on a busy
+# machine can end the first requests before the last ones start.
+lsec=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n'); lbox=$(printf %s "$lsec" | sha256sum | cut -c1-32)
+curl -s -o /dev/null -X POST "$RURL?a=send" --data-binary "${lbox}hello"
+lids=$(curl -s -X POST "$RURL?a=get" -d "{\"s\":\"$lsec\"}" | python3 -c 'import json,sys; print(json.dumps([x["id"] for x in json.load(sys.stdin)]))')
+curl -s -o /dev/null -X POST "$RURL?a=ack" -d "{\"s\":\"$lsec\",\"ids\":$lids}"
+burst=$( (for i in 1 2 3 4 5 6 7 8; do live 198.51.100.7 "$lsec" 10 & done; wait) )
 sleep 0.3; otherip=$(live 203.0.113.9)
 echo "$burst" | grep -q 429 && [ "$otherip" = "200 " ] && echo "  ok   live connections capped per client behind a proxy ($burst| other client: $otherip)" || { echo "  FAIL per-client live cap ($burst| other: $otherip)"; exit 1; }
 if [ "$IMPL" = go ]; then
