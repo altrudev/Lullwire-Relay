@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.8.0 (2026-11-13): owner dashboard and single-use invites
+## 0.8.0 (2026-11-14): owner dashboard, single-use invites and notifications
+- **Notifications in the browser:** with **Settings → Notifications** on, a popup when a message or call arrives while the app is in the background or another tab (generic unless names are on); the app then stays connected in the background
+- **Notifications while closed (Web Push, opt-in):** **Also when Lullwire is closed** asks the browser maker's push service to wake the app. The relay (`-push`, on by default, off by default with `-onion`) sends an encrypted, empty signal when mail arrives and the app isn't connected; the popup says "New message". Apple or Google learn when messages arrive, never who from or what. On iPhone and iPad it works from the Home Screen (iOS 16.4+). Only the push services' own hosts are contacted; subscriptions are capped, expire, and go when a member is removed
 - **Owner dashboard** (Go relay), in **Settings → Owner dashboard**: run `lullwire-relay -owner-code` on the server and enter the code in the app. It shows members, activity today and this week, messages and data per day (last 14 days), waiting mail, recovery backups, live connections and calls, free disk, and the relay's version and uptime
 - **Single-use invites:** the owner's **Invite someone** link lets one new person join, once, within 7 days. Open invites can be revoked
 - **Shared join code on/off:** with it off, people join only through the owner's invites, and members' invite links add contacts without letting anyone join. Everyone already on the relay stays
@@ -13,6 +15,7 @@
 - Daily counts and last-seen times survive restarts (`stats.json`; member files record when they joined)
 - `LEGACY` code for Hush Relay 0.5 is now planned for removal in 0.9
 - Tests: owner claim, guessing limits, single-use invites, shared code off, member key and removal, temporary mailboxes, status counts, restart (Go unit tests, with the race detector and mutation checks); a browser test of the whole owner flow, including a profile move and a restart in place
+- Tests: push subscriptions (allowed hosts, keys, limits, members only), signals (RFC 8291 encryption, VAPID signature, quiet period, 410 Gone, none while connected), checked against the independent `http_ece` library; a browser test of notification settings, background popups with and without names, and the service worker's popup for a push
 
 ## 0.7.2 (2026-11-13): PHP relay delivers large mailboxes in parts
 - **Fix (PHP relay and single file):** a mailbox holding more than about 30 MiB (two files sent to someone offline, or deliberately filled by anyone who knows the mailbox) made every fetch run out of PHP's usual 128 MB `memory_limit`, so the owner received nothing until the mail expired after 14 days. The relay now hands out mail in parts of about 2 MiB, like the Go relay, and the app collects the rest on its next request. Introduced in 0.7.0 with the 48 MiB mailbox limit

@@ -28,7 +28,7 @@ import (
 
 // settingNames are the flags a settings file may set.
 var settingNames = map[string]bool{"addr": true, "data": true, "web": true, "trusted-proxies": true, "onion": true,
-	"forwarded-header": true, "path": true, "cover": true, "join-code": true}
+	"forwarded-header": true, "path": true, "cover": true, "join-code": true, "push": true, "push-contact": true}
 
 func defaultConfigPath() string {
 	dir, err := os.UserConfigDir()
@@ -109,9 +109,9 @@ func parseConfig(r io.Reader) (map[string]string, error) {
 		if uq, err := strconv.Unquote(v); err == nil {
 			v = uq
 		}
-		if k == "onion" && v != "" {
+		if (k == "onion" || k == "push") && v != "" {
 			if _, err := parseBool(v); err != nil {
-				return nil, fmt.Errorf("line %d: onion must be true or false", n)
+				return nil, fmt.Errorf("line %d: %s must be true or false", n, k)
 			}
 		}
 		cfg[k] = v

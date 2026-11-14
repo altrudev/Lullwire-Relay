@@ -739,10 +739,10 @@ if (typeof document !== 'undefined') (() => {
     if (!isRelay(url)) return { ok: false, invite: false, calls: false, mail: false };
     try {
       const r = await fetch(url + '?a=info', { method: 'POST', headers: TP, body: '{}' });
-      if (!r.ok) return { ok: r.status === 400, invite: false, calls: false, mail: false, owner: false };
+      if (!r.ok) return { ok: r.status === 400, invite: false, calls: false, mail: false, owner: false, push: null };
       const j = await r.json();
-      return { ok: true, invite: !!j.invite, calls: !!j.calls, mail: !!j.mail, owner: !!j.owner };
-    } catch { return { ok: false, invite: false, calls: false, mail: false, owner: false }; }
+      return { ok: true, invite: !!j.invite, calls: !!j.calls, mail: !!j.mail, owner: !!j.owner, push: typeof j.push === 'string' ? j.push : null };
+    } catch { return { ok: false, invite: false, calls: false, mail: false, owner: false, push: null }; }
   }
   // The live endpoint lives next to the relay: …/relay.php -> …/live, https -> wss.
   function liveURL(relay) {
@@ -1109,13 +1109,83 @@ if (typeof document !== 'undefined') (() => {
     await kvSet(key, st);
   }
 
-  // ----- notifications (Android app) -----
+  // ----- notifications -----
+  // The Android app shows its own. In a browser: popups while the app is open but not
+  // in front (no servers involved), and, if turned on, Web Push while it's closed:
+  // the relay asks the browser maker's push service to wake the service worker, which
+  // shows "New message" (sw.js). Both are per device and never in backups.
+  const canNotify = () => !AND && 'Notification' in window && 'serviceWorker' in navigator && window.isSecureContext;
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const swReady = () => Promise.race([navigator.serviceWorker.ready, new Promise(res => setTimeout(() => res(null), 5000))]);
   function notify(kind, c, text) {
-    if (!has('notify') || (document.visibilityState === 'visible' && current === c.id)) return;
     const named = me.notifyNames;
-    AND.notify(kind, kind === 'call' ? (named ? c.name : 'Incoming call') : (named ? c.name : 'Lullwire Relay'),
-      kind === 'call' ? (named ? text : 'Open Lullwire Relay to answer') : (named ? text.slice(0, 120) : 'New message'));
+    const title = kind === 'call' ? (named ? c.name : 'Incoming call') : (named ? c.name : 'Lullwire Relay');
+    const body = kind === 'call' ? (named ? text : 'Open Lullwire Relay to answer') : (named ? text.slice(0, 120) : 'New message');
+    if (has('notify')) {
+      if (document.visibilityState === 'visible' && current === c.id) return;
+      return AND.notify(kind, title, body);
+    }
+    if (!me.notifyOn || !canNotify() || Notification.permission !== 'granted' || document.visibilityState === 'visible') return;
+    swReady().then(reg => reg && reg.showNotification(title, {
+      body, icon: 'icon-192.png', badge: 'icon-192.png', renotify: true,
+      tag: kind === 'call' ? 'lullwire-call' : 'lullwire-' + c.id, requireInteraction: kind === 'call',
+    })).catch(() => {});
   }
+  async function pushSubscribe() {
+    const reg = await swReady();
+    if (!reg || !reg.pushManager) throw new Error('this browser can\'t receive push here');
+    const key = b64d(me.pushKey);
+    let sub = await reg.pushManager.getSubscription();
+    // A subscription made with another relay key (the relay changed) won't be accepted.
+    if (sub && sub.options && sub.options.applicationServerKey && b64e(sub.options.applicationServerKey) !== me.pushKey) { await sub.unsubscribe().catch(() => {}); sub = null; }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    const r = await fetch(me.relay + '?a=push', { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret, sub: sub.toJSON() }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'the relay answered ' + r.status);
+  }
+  async function pushUnsubscribe() {
+    const reg = await swReady();
+    const sub = reg && reg.pushManager && await reg.pushManager.getSubscription().catch(() => null);
+    await fetch(me.relay + '?a=push', { method: 'POST', headers: TP, body: JSON.stringify(sub ? { s: me.secret, off: true, endpoint: sub.endpoint } : { s: me.secret, off: true }) }).catch(() => {});
+    if (sub) await sub.unsubscribe().catch(() => {});
+  }
+  function renderNotify() {
+    const ok = canNotify();
+    $('#notifyWrap').hidden = !ok;
+    $('#notifyIn').checked = ok && !!me.notifyOn && Notification.permission === 'granted';
+    const pushable = ok && !!me.pushKey && ('PushManager' in window || isIOS);
+    $('#pushWrap').hidden = !pushable;
+    const iosFirst = isIOS && !standalone();
+    $('#pushIn').disabled = iosFirst;
+    $('#pushIn').checked = !iosFirst && !!me.pushOn;
+    $('#pushHint').textContent = iosFirst
+      ? 'On iPhone and iPad, first add Lullwire to your Home Screen (Share, then Add to Home Screen) and open it from there.'
+      : 'Uses your browser maker\'s push service (Apple, Google or Mozilla). Your relay sends it an encrypted, empty signal, so it learns when you get messages, never who from or what. These popups just say "New message".';
+    $('#namesWrap').hidden = !has('setBackground') && !$('#notifyIn').checked;
+  }
+  $('#notifyIn').onchange = async e => {
+    if (e.target.checked) {
+      const p = await Notification.requestPermission().catch(() => 'denied');
+      if (p !== 'granted') { e.target.checked = false; return alert('Notifications are blocked for this site. Allow them in your browser\'s site settings, then try again.'); }
+      me.notifyOn = true;
+    } else {
+      me.notifyOn = false;
+      if (me.pushOn) { me.pushOn = false; await pushUnsubscribe(); }
+    }
+    await saveMe(); renderNotify();
+  };
+  $('#pushIn').onchange = async e => {
+    if (e.target.checked) {
+      // Ask right away: browsers only allow it in direct response to the tap.
+      const p = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission().catch(() => 'denied');
+      if (p !== 'granted') { e.target.checked = false; return alert('Notifications are blocked for this site. Allow them in your browser\'s site settings, then try again.'); }
+      try { await pushSubscribe(); me.pushOn = me.notifyOn = true; toast('You\'ll get a notification even when Lullwire is closed'); }
+      catch (err) { e.target.checked = false; me.pushOn = false; alert('Could not turn this on: ' + err.message); }
+    } else {
+      me.pushOn = false; await pushUnsubscribe();
+    }
+    await saveMe(); renderNotify();
+  };
 
   // ----- receive -----
   async function receive(bytes) {
@@ -1197,7 +1267,11 @@ if (typeof document !== 'undefined') (() => {
   // Optional cover traffic on both looks like real deliveries, replies and acks.
   // Fallback: long-polling, for relays (PHP) or proxies without WebSocket support.
   const mail = { ws: null, send: null, reqs: new Map(), seq: 1, fails: 0, pollUntil: 0, kick: null };
-  const awake = () => document.visibilityState === 'visible' || !!activeCall || (has('setBackground') && me && me.bg !== false);
+  // Stay connected while in the background when the Android app runs in the background,
+  // or when browser notifications are on (that's what lets them pop up). Otherwise a
+  // hidden page stops reconnecting, to save battery.
+  const awake = () => document.visibilityState === 'visible' || !!activeCall || (has('setBackground') && me && me.bg !== false) ||
+    !!(me && me.notifyOn && canNotify() && Notification.permission === 'granted');
 
   // ----- connection status -----
   // Whether mail can arrive right now, shown in a bar under the header. Phones drop
@@ -1786,8 +1860,9 @@ if (typeof document !== 'undefined') (() => {
     $('#myBuild').textContent = window.__lullwireBuild ? window.__lullwireBuild() : 'Version ' + $('#appVer').textContent;
     $('#lockOn').hidden = vaultHdr.mode !== 'pass'; $('#lockOff').hidden = vaultHdr.mode === 'pass';
     $('#coverWrap').hidden = !me.mail; $('#coverIn').checked = !!me.cover;
-    $('#bgWrap').hidden = $('#namesWrap').hidden = !has('setBackground');
+    $('#bgWrap').hidden = !has('setBackground');
     $('#bgIn').checked = me.bg !== false; $('#namesIn').checked = !!me.notifyNames;
+    renderNotify();
     renderRecovery();
   }
   $('#settingsBtn').onclick = async () => {
@@ -1952,7 +2027,7 @@ if (typeof document !== 'undefined') (() => {
         // A single-use invite is spent now; only keep a shared code that still admits people.
         draft.join = jr.shared === false ? null : code;
       }
-      draft.calls = info.calls; draft.mail = info.mail; draft.ownerApi = info.owner;
+      draft.calls = info.calls; draft.mail = info.mail; draft.ownerApi = info.owner; draft.pushKey = info.push;
       draft.inviteTok = b64e(rand(12));
       if (has('setBackground')) draft.bg = true;
       await saveIdentity(draft.jwk); delete draft.jwk;
@@ -2179,7 +2254,12 @@ if (typeof document !== 'undefined') (() => {
     keepPrekeysFresh(); setInterval(keepPrekeysFresh, 6 * 3600000);
     // Learn what the relay supports (live connection, calls) before choosing how to receive.
     relayInfo(me.relay).then(async info => {
-      if (info.ok && (info.calls !== !!me.calls || info.mail !== !!me.mail || info.owner !== !!me.ownerApi)) { me.calls = info.calls; me.mail = info.mail; me.ownerApi = info.owner; await saveMe(); }
+      if (info.ok && (info.calls !== !!me.calls || info.mail !== !!me.mail || info.owner !== !!me.ownerApi || info.push !== (me.pushKey || null))) {
+        me.calls = info.calls; me.mail = info.mail; me.ownerApi = info.owner; me.pushKey = info.push; await saveMe();
+      }
+      // Renew the push subscription (the relay drops ones not renewed in 60 days, and
+      // browsers replace them now and then).
+      if (info.ok && me.pushOn && me.pushKey && canNotify()) pushSubscribe().catch(() => {});
     }).catch(() => {}).finally(() => { liveLoop(); sendLoop(); });
     // After an update from 0.5, sessions were renewed: tell each contact.
     for (const c of contacts.values()) if (c.needReset) {

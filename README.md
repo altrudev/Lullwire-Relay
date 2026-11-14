@@ -51,6 +51,7 @@ For people at risk, the guide explains a [hidden setup](docs/SELF-HOSTING.md#hid
 - **Files:** send photos, documents and anything else up to 16 MB, end-to-end encrypted like messages. Photos get a preview; the recipient's app checks every file against its SHA-256 before showing it.
 - **Voice and video calls:** encrypted end to end with a fresh key per call, carried over your relay's HTTPS connection. No peer-to-peer link, so neither side sees the other's IP address.
 - **Private relay:** a hidden path with a plain front page, and invite-only mode so strangers can't use your server. Invite links carry what's needed to join, so friends just tap and start.
+- **Notifications:** popups while the app is in the background, in any browser. Optionally also while it's closed (Web Push, iPhone included once it's on the Home Screen), with an encrypted, empty signal: no names or text pass through Apple or Google.
 - **Owner dashboard:** see how many people use your relay and how actively, make single-use invites, remove someone, and restart the relay, all from your app. Members are anonymous ids to the relay; your app names the ones in your contacts.
 - **Android app:** a small APK (no app store, no Google services) built with the plain SDK tools; it blocks screenshots and keeps keys out of cloud backups.
 - **Live delivery over one connection:** a single long-lived HTTPS (WebSocket) connection to your relay carries messages in both directions, like any mainstream chat app. Optional **cover traffic** hides when you're actually sending. Messages wait up to 14 days on the relay while you're offline.
@@ -151,7 +152,7 @@ SERIAL=emulator-5554 ./tests/android/run.sh   # Android app on an emulator (need
 - **Message history stays on the device that received it.**
 - **The relay operator sees metadata:** IP addresses, timing, size bucket and which mailbox gets mail. They can't see content or senders.
 - **The web delivery problem:** once installed, the web app only accepts code signed with the release key, but a fully compromised server can still replace the service worker that enforces this. The Android app and a pinned IPFS CID don't have this problem.
-- **No push notifications in the browser.** The Android app delivers in the background; in a browser, messages arrive while the app is open.
+- **Notifications in a browser while it's closed go through the browser maker's push service** (Apple, Google, Mozilla), which learns when you get messages, never who from or what. It's off unless you turn it on, and those popups only say "New message". The Android app needs no push service.
 
 ## Contributing
 

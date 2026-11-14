@@ -105,6 +105,7 @@ type Relay struct {
 	sendConns   map[*wsConn]bool            // open send connections
 	mailConns   map[string]map[*wsConn]bool // open mail connections by mailbox
 	temp        map[string]time.Time        // mailboxes a member admitted for a device move -> until
+	push        *pushState                  // Web Push; nil when off (push.go)
 
 	fwdHeader string        // header a trusted proxy uses to report the client address
 	busy      chan struct{} // semaphore for body-heavy work
@@ -461,7 +462,11 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	q := req.URL.Query()
 	switch a := q.Get("a"); a {
 	case "info": // what the app needs to know before signing up
-		writeJSON(w, http.StatusOK, map[string]any{"v": 2, "invite": r.inviteOnly(), "calls": true, "mail": true, "owner": true})
+		info := map[string]any{"v": 2, "invite": r.inviteOnly(), "calls": true, "mail": true, "owner": true}
+		if r.push != nil {
+			info["push"] = r.push.pub // the key apps subscribe with
+		}
+		writeJSON(w, http.StatusOK, info)
 	case "owner": // the relay owner's dashboard (owner.go)
 		r.owner(w, req)
 	case "put": // LEGACY: the mailbox in the URL, where access logs record it (apps before 0.6.1)
@@ -480,6 +485,10 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		box := sha256hex(s)[:32]
 		if a == "join" {
 			r.join(w, req, box, in)
+			return
+		}
+		if a == "push" {
+			r.pushAPI(w, req, box, in)
 			return
 		}
 		// Fetching from a mailbox that hasn't joined is harmless: nothing can be delivered
@@ -681,6 +690,7 @@ func (r *Relay) store(box string, body []byte) (int, string) {
 	r.known[box] = r.now()
 	r.mu.Unlock()
 	r.countDelivery(len(body))
+	r.pushWake(box)
 	r.wake(box)
 	return 0, ""
 }

@@ -184,6 +184,13 @@ if [ "$E2E" = 1 ]; then
     now=$(pgrep -f -- "-data $TMP/owner-data" | tr "\n" " ")
     [ "$now" = "$OPID " ] && echo "  ok   restarted in place (same process id)" || { echo "  FAIL relay process changed or died after restart (was $OPID, now: $now)"; tail -5 "$TMP/server.log"; exit 1; }
     kill $OPID 2>/dev/null || true
+    echo "== notifications (browsers)"
+    cp -r web "$TMP/web-unsigned"; sed -i "s/^const RELEASE_KEY = '[^']*'/const RELEASE_KEY = ''/" "$TMP/web-unsigned/sw.js"
+    "$TMP/lullwire-relay" -addr "localhost:$((PORT+6))" -data "$TMP/notify-data" -web "$TMP/web-unsigned" >>"$TMP/server.log" 2>&1 &
+    NPID=$!
+    for _ in $(seq 50); do curl -s -o /dev/null "http://localhost:$((PORT+6))/index.html" && break; sleep 0.1; done
+    BASE="http://localhost:$((PORT+6))/index.html" python3 tests/notify.py
+    kill $NPID 2>/dev/null || true
   fi
   if [ "$IMPL" = phpfile ]; then
     # Without a router script, PHP's server logs every request line, like a host's access

@@ -162,3 +162,24 @@ self.addEventListener('message', e => {
     if (e.data.check) checkUpdate(true);
   })());
 });
+
+// ----- notifications while the app is closed (Web Push, opt-in) -----
+// The relay's signal says only "there's mail" (it can't say more: the app's keys are
+// locked in its vault), so the popup does too. Every signal shows one: Safari ends
+// subscriptions that wake the app silently. tag folds repeats into one popup.
+self.addEventListener('push', e => {
+  e.waitUntil(self.registration.showNotification('Lullwire Relay', {
+    body: 'New message', tag: 'lullwire-push', renotify: true, icon: 'icon-192.png', badge: 'icon-192.png', data: { push: true },
+  }));
+});
+
+// A tap opens the app, or brings an open copy to the front.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const open = wins.find(w => w.url.startsWith(self.registration.scope));
+    if (open) return open.focus();
+    return self.clients.openWindow(self.registration.scope);
+  })());
+});

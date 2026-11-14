@@ -192,6 +192,7 @@ func (r *Relay) touch(box string) {
 		r.activeToday[box] = true
 		d.Active++
 	}
+	r.pushFetched(box) // the app is fetching: the next arrival may signal again (takes only the push lock)
 }
 
 func (r *Relay) countDelivery(n int) {
@@ -247,6 +248,7 @@ func (r *Relay) sweepOwner() {
 	if b, err := os.ReadFile(p); err == nil && (json.Unmarshal(b, &c) != nil || c.Exp <= now) {
 		_ = os.Remove(p)
 	}
+	r.sweepPush()
 	r.saveStats()
 }
 
@@ -539,6 +541,7 @@ func (r *Relay) removeMember(id string) bool {
 		log.Printf("owner: could not change the member key: %v", keyErr)
 	}
 	_ = os.Remove(filepath.Join(r.memberDir, box))
+	r.removePush(box)
 	unlock := r.lockBox(box)
 	_ = os.RemoveAll(r.boxDir(box))
 	unlock()
@@ -578,6 +581,11 @@ func (r *Relay) ownerStatus() map[string]any {
 		diskFreeBytes = int64(free)
 	}
 	invites := len(r.inviteList())
+	pushBoxes := -1 // push off on this relay
+	if r.push != nil {
+		entries, _ := os.ReadDir(r.push.dir)
+		pushBoxes = len(entries)
+	}
 	r.hub.mu.Lock()
 	calls := len(r.hub.rooms)
 	r.hub.mu.Unlock()
@@ -601,5 +609,6 @@ func (r *Relay) ownerStatus() map[string]any {
 		"backups": backups, "disk_free": diskFreeBytes, "invites": invites,
 		"live": map[string]int{"mail": len(r.mailConns), "send": len(r.sendConns), "calls": calls},
 		"days": days,
+		"push": pushBoxes,
 	}
 }

@@ -86,10 +86,11 @@ Message bodies are JSON with an authenticated timestamp: `{t: "msg", id, txt, ts
 | `?a=rput` | `{"l": 32hex, "t": 64hex, "d": b64url}` | stores a recovery slot; an existing slot needs the same `t` |
 | `?a=rget` | `{"l"}` | `{d}` or 404 |
 | `?a=rdel` | `{"l", "t"}` | deletes a slot |
-| `?a=info` | `{}` | `{v: 2, invite: bool, calls: bool, mail: bool, owner: bool}` (Go relay; the PHP relay answers 400, which the app reads as "open, no calls, no live connection, no owner dashboard") |
+| `?a=info` | `{}` | `{v: 2, invite: bool, calls: bool, mail: bool, owner: bool, push?: vapidKey}` (Go relay; the PHP relay answers 400, which the app reads as "open, no calls, no live connection, no owner dashboard") |
 | `?a=join` | `{"s": secret, "code"?}` | a member renews (no code needed) and gets `{ok, k: memberKey, shared: bool}`, plus `code: bool` when it sent one (does that shared code still admit people); a new mailbox needs the shared code (while on) or a single-use invite, which is used up; 403 otherwise |
 | `?a=join` | `{"s", "by": memberSecret, "temp": true}` | a member admits a temporary mailbox for an hour (moving to a new device); at most 6 per member per hour; not listed or counted as a member |
 | `?a=owner` | `{"o": ownerToken, "op", …}` | the owner's dashboard (Go relay); see below |
+| `?a=push` | `{"s", "sub": PushSubscription.toJSON()}` or `{"s", "off": true, "endpoint"?}` | Web Push for this mailbox (Go relay with `-push`); see below |
 
 **Invite-only relays** (Go relay with `-join-code`) keep a list of member mailboxes, each with the day it joined (from 0.8) and its last activity. `put` to a non-member box answers 404 `unknown box`, so strangers can't use the relay as a free mailbox; `rput` needs the `s` of a member. `get` and `ack` for a non-member answer like an empty mailbox. The relay keeps `SHA-256("lullwire-join|" + code)` in memory, never the code. Wrong codes are limited to 10 per client per hour and 60 per minute overall; the right code is always accepted.
 
@@ -108,6 +109,8 @@ Message bodies are JSON with an authenticated timestamp: `{t: "msg", id, txt, ts
 | `restart` | | answers, then shuts down gracefully and starts the relay program again in the same process (an updated binary takes over); 501 where that isn't possible |
 
 Wrong tokens are limited to 20 per client per hour (200 overall), wrong claim codes to 10 (50); the right token is never limited. Answers are the same whether or not the relay has an owner yet.
+
+**Web Push** (opt-in per device; Go relay with `-push`). `info.push` is the relay's VAPID public key (P-256, uncompressed, base64url), kept in `data/vapid.pem`. The app subscribes with it as `applicationServerKey` and hands the relay the subscription (renewed on every start; at most 3 per mailbox; members only on an invite-only relay). The relay accepts only endpoints on the push services' own hosts (`fcm.googleapis.com`, `*.push.apple.com`, `*.push.services.mozilla.com`, `*.notify.windows.com`) over HTTPS on port 443, and follows no redirects. When mail is stored for a mailbox with no live mail connection, it POSTs each subscription the payload `{"t":"m"}` encrypted per RFC 8291 (`aes128gcm`), with `TTL: 86400`, `Urgency: high` and a VAPID (RFC 8292) `Authorization` header; then nothing more for that mailbox for 10 minutes or until its app fetches. A 404 or 410 drops the subscription; so do 60 days without renewal and the owner removing the member. The service worker shows "New message" for every signal (it can't read mail: the keys are in the locked vault).
 
 **Private path** (Go relay with `-path /<secret>/`): everything above, the app and `/live` move under that prefix, and `/` shows a plain placeholder page. It keeps scanners and casual visitors from recognising the server; it is not access control (the join code is).
 

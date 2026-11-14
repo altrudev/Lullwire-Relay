@@ -58,6 +58,8 @@ func main() {
 	webDir := flag.String("web", set("web", ""), "serve the app from this folder instead of the built-in copy")
 	trusted := flag.String("trusted-proxies", set("trusted-proxies", ""), "comma-separated proxy IPs allowed to report client addresses (local ones are trusted automatically)")
 	onion := flag.Bool("onion", isTrue(set("onion", "")), "Tor onion-service mode: limits apply per mailbox because Tor hides client addresses")
+	pushSetting := flag.String("push", set("push", ""), "Web Push for apps that turn on notifications while closed: true or false (default true, but false with -onion, since push services would learn this server's address)")
+	pushContact := flag.String("push-contact", set("push-contact", "https://github.com/altrudev/Lullwire-Relay"), "a URL or mailto: address push services can contact about this relay (sent with every push)")
 	fwd := flag.String("forwarded-header", set("forwarded-header", "X-Forwarded-For"), "header your proxy uses to report the client address (CF-Connecting-IP for Cloudflare Tunnel)")
 	prefix := flag.String("path", set("path", ""), "private path for the app and relay, e.g. /k7q4mxp2/ (everything else shows the front page); see -new-path")
 	cover := flag.String("cover", set("cover", ""), "HTML file shown at every other address (default: a plain placeholder page)")
@@ -102,6 +104,13 @@ func main() {
 		log.Fatal(err)
 	}
 	relay, err := NewRelay(*data, strings.Split(*trusted, ","), *onion)
+	pushOn := !*onion
+	if *pushSetting != "" {
+		pushOn = isTrue(*pushSetting)
+	}
+	if err == nil && pushOn {
+		err = relay.EnablePush(*pushContact)
+	}
 	if err != nil {
 		log.Fatalf("data folder: %v", err)
 	}
@@ -153,6 +162,9 @@ func main() {
 	mode := ""
 	if *onion {
 		mode += ", onion mode"
+	}
+	if relay.push != nil {
+		mode += ", push"
 	}
 	if relay.inviteOnly() {
 		mode += ", invite-only"

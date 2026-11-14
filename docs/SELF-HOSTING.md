@@ -194,6 +194,10 @@ The dashboard shows how many people use the relay and how actively, messages and
 
 Members appear under anonymous ids; your app shows names for the people in your own contacts. Names never reach the relay. Owner access belongs to one device and isn't included in backups or moves: on a new phone, run `-owner-code` again (a new code replaces the old owner device). The dashboard needs the Go relay; the single PHP file doesn't have it.
 
+### Notifications
+
+In a browser, each person can turn on **Settings → Notifications** for popups while the app is open in the background, and **Also when Lullwire is closed** for popups while it's closed. The second uses the browser maker's push service: when mail arrives and the app isn't connected, your relay sends that service an encrypted, empty signal, and the app shows "New message". Apple or Google learns when that person gets messages and your server's address, never who from or what. It needs the Go relay with `-push` on (the default except with `-onion`). On iPhone and iPad it works once Lullwire is on the Home Screen (iOS 16.4 or later). The Android app shows notifications on its own with **Stay connected in the background**.
+
 **Calls and bandwidth:** a video call uses about 0.7 Mbit/s in each direction per person, all through the relay. The smallest VPS handles several calls at once.
 
 **Moving from the single file:** point `-data` at the old data folder; waiting mail and recovery backups carry over.
@@ -214,6 +218,8 @@ Members appear under anonymous ids; your app shows names for the people in your 
 | `-trusted-proxies` | `LULLWIRE_TRUSTED_PROXIES` | none | Proxy IPs on *other* machines allowed to report client addresses (local proxies are trusted automatically). |
 | `-forwarded-header` | `LULLWIRE_FORWARDED_HEADER` | `X-Forwarded-For` | Header the proxy uses for the client address (`CF-Connecting-IP` behind Cloudflare Tunnel). |
 | `-onion` | `LULLWIRE_ONION=1` | off | Tor mode: limits apply per mailbox, because Tor hides client addresses. |
+| `-push` | `LULLWIRE_PUSH` | on (off with `-onion`) | Lets apps turn on notifications while closed (Web Push). The relay then contacts Apple's, Google's, Mozilla's or Microsoft's push services, which learn this server's address; turn it off if that matters. |
+| `-push-contact` | `LULLWIRE_PUSH_CONTACT` | the project page | A `mailto:` or `https:` address the push services can use to reach you about this relay. |
 | `-config` | `LULLWIRE_CONFIG` | `~/.config/lullwire-relay/relay.conf` | Settings file. |
 
 The relay refuses to start if its data folder is inside a served folder. It protects small machines on its own: at most 128 uploads or deliveries at once, about 2 MiB of mail per fetch, and a clean shutdown that answers waiting connections first. Abuse limits match the single file (120 deliveries per minute per client, 48 MiB waiting per mailbox, 6 live connections per client, a 256 MiB free-disk floor).
