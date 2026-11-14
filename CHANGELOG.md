@@ -1,10 +1,11 @@
 # Changelog
 
-## 0.8.1 (2026-11-14): sounds, message times and an easier move
+## 0.8.1 (2026-11-14): installing, sounds, message times and an easier move
+- **Install Lullwire:** when the browser can install the app (Chrome, Edge, Samsung Internet, Android), the chat list offers it with an **Install** card that opens the browser's dialog; on iPhone and iPad the card shows the Safari steps (Share, Add to Home Screen). **Not now** hides it; **Settings → Install Lullwire on this device** still offers it. Never shown in the Android app or once installed. The web manifest gains an `id`
 - **Sounds:** a chime when a message arrives that isn't on screen, and ringing for incoming calls until they're answered or declined. On by default; **Settings → Sounds** turns them off. The Android app's notifications keep Android's own sounds
 - **Message times:** a received message shows when it was **sent** (the sender's time, carried inside the encrypted message), not when this device got it. If it arrived much later (it waited at the relay while the device was off), the time it arrived is shown next to it. Times in the future are capped at now. Files too
 - **Moving instead of a second profile:** **Create profile** first asks whether you already use Lullwire on another device, with **Move it here** as the main choice, since a new profile is a separate account that contacts of the old one won't reach. The move screen lists the steps, including how to use a screenshot when the other device has no camera
-- Tests: a browser test of the new question, the move screen, chimes (and none for the open chat or with Sounds off), ringing until a call is declined, and sent/arrived times
+- Tests: a browser test of installing (Chrome's own installability check, the card, its button, Not now, the iPhone steps); a browser test of the new question, the move screen, chimes (and none for the open chat or with Sounds off), ringing until a call is declined, and sent/arrived times
 
 ## 0.8.0 (2026-11-14): owner dashboard, single-use invites and notifications
 - **Notifications in the browser:** with **Settings → Notifications** on, a popup when a message or call arrives while the app is in the background or another tab (generic unless names are on); the app then stays connected in the background

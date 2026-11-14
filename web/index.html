@@ -82,6 +82,12 @@
 
   <!-- Contacts -->
   <section id="vList" class="view" hidden>
+    <div id="installCard" class="install-card narrow" hidden>
+      <img src="icon-192.png" alt="" width="40" height="40">
+      <div class="grow"><strong>Install Lullwire</strong><span class="small muted block" id="installHint">Opens like an app from its own icon, works offline, and can notify you.</span></div>
+      <button id="installBtn" class="btn primary">Install</button>
+      <button id="installClose" class="icon-btn" aria-label="Not now"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
     <ul id="contactList" class="list"></ul>
     <div id="empty" class="empty">
       <svg class="illus" viewBox="0 0 120 90" fill="none"><rect x="8" y="14" width="64" height="44" rx="12" fill="#e3f2ee"/><path d="M22 58v14l14-14" fill="#e3f2ee"/><rect x="48" y="30" width="64" height="44" rx="12" fill="#0e7a68"/><path d="M98 74v12L86 74" fill="#0e7a68"/><circle cx="66" cy="52" r="4" fill="#fff"/><circle cx="80" cy="52" r="4" fill="#fff"/><circle cx="94" cy="52" r="4" fill="#fff"/></svg>
@@ -299,6 +305,11 @@
         <input id="bp2" type="password" autocomplete="new-password">
         <p class="mt10"><button id="exportBtn" class="btn">Download backup</button></p>
       </details>
+    </div>
+
+    <div id="installSetWrap" hidden>
+      <h3>This device</h3>
+      <div class="card"><button id="installSetBtn" class="btn">Install Lullwire on this device</button><p class="small muted mt8" id="installSetHint"></p></div>
     </div>
 
     <h3>Danger zone</h3>

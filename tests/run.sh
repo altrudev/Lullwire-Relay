@@ -192,6 +192,8 @@ if [ "$E2E" = 1 ]; then
     BASE="http://localhost:$((PORT+6))/index.html" python3 tests/notify.py
     echo "== setup, sounds and message times (browsers)"
     BASE="http://localhost:$((PORT+6))/index.html" python3 tests/app.py
+    echo "== installing the app (browsers)"
+    BASE="http://localhost:$((PORT+6))/index.html" python3 tests/install.py
     kill $NPID 2>/dev/null || true
   fi
   if [ "$IMPL" = phpfile ]; then

@@ -885,6 +885,7 @@ if (typeof document !== 'undefined') (() => {
 
   // ----- contact list -----
   async function renderList() {
+    renderInstall();
     const ul = $('#contactList'); ul.textContent = '';
     const arr = [...contacts.values()].filter(c => !c.blocked).sort((a, b) => b.ts - a.ts);
     $('#empty').hidden = arr.length > 0;
@@ -1119,6 +1120,36 @@ if (typeof document !== 'undefined') (() => {
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   const swReady = () => Promise.race([navigator.serviceWorker.ready, new Promise(res => setTimeout(() => res(null), 5000))]);
+  // ----- installing the app -----
+  // Chrome, Edge, Samsung Internet and others offer an install dialog: we keep their
+  // beforeinstallprompt and open it from our own button. Safari on iPhone and iPad has
+  // no dialog, so there the card shows the two steps. Never in the Android app, nor
+  // once installed; "Not now" hides the card on this device (Settings still offers it).
+  let installEvt = null;
+  const installed = () => standalone() || !!AND;
+  const iosInstall = () => isIOS && !installed();
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderInstall(); });
+  addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('Lullwire is installed'); });
+  function renderInstall() {
+    const can = !installed() && (!!installEvt || iosInstall());
+    const hint = iosInstall() ? 'In Safari, tap Share, then Add to Home Screen. Then open Lullwire from its icon.' : 'Opens like an app from its own icon, works offline, and can notify you.';
+    $('#installCard').hidden = !can || !me || !!me.installHide;
+    $('#installHint').textContent = hint;
+    $('#installBtn').hidden = !installEvt;
+    $('#installSetWrap').hidden = !can;
+    $('#installSetBtn').hidden = !installEvt;
+    $('#installSetHint').textContent = iosInstall() ? hint : 'Adds Lullwire to your home screen or apps, so it opens in its own window.';
+  }
+  async function install() {
+    if (!installEvt) return;
+    const e = installEvt; installEvt = null;
+    try { await e.prompt(); const r = await e.userChoice; if (r && r.outcome !== 'accepted') installEvt = e; } catch {}
+    renderInstall();
+  }
+  $('#installBtn').onclick = install;
+  $('#installSetBtn').onclick = install;
+  $('#installClose').onclick = async () => { me.installHide = true; await saveMe(); renderInstall(); };
+
   // ----- sounds -----
   // A short chime for new messages and ringing for incoming calls, made with Web Audio
   // (no sound files). Browsers allow sound only after a first tap, so the audio engine
@@ -1917,7 +1948,7 @@ if (typeof document !== 'undefined') (() => {
     $('#coverWrap').hidden = !me.mail; $('#coverIn').checked = !!me.cover;
     $('#bgWrap').hidden = !has('setBackground');
     $('#bgIn').checked = me.bg !== false; $('#namesIn').checked = !!me.notifyNames;
-    renderNotify();
+    renderNotify(); renderInstall();
     renderRecovery();
   }
   $('#settingsBtn').onclick = async () => {

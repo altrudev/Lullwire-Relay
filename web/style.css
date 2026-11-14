@@ -182,3 +182,10 @@ code.cmd{display:block;padding:8px 10px;background:var(--surface-2);border-radiu
 .dup-ask{margin-top:12px;padding:12px 14px;border:1px solid var(--accent);border-radius:var(--radius-s);background:var(--surface-2)}
 ol.steps{margin:8px 0 12px;padding-left:22px;line-height:1.5}
 ol.steps li{margin:4px 0}
+
+/* "Install Lullwire" on the chat list */
+.install-card{display:flex;align-items:center;gap:12px;margin:12px auto 4px;padding:12px 12px 12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.install-card img{border-radius:10px;flex:none}
+.install-card .grow{flex:1;min-width:0}
+.install-card .btn{flex:none}
+.install-card .icon-btn{flex:none;width:34px;height:34px}
