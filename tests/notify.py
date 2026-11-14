@@ -46,10 +46,10 @@ with sync_playwright() as pw:
     # The full Chromium: the headless-only build always says notifications are denied.
     b = pw.chromium.launch(executable_path=CHROME) if CHROME else pw.chromium.launch(channel='chromium')
     A = page(b, 'A', notify=True); A.wait_for_function("document.body.dataset.setup === 'ready'")
-    A.fill('#nameIn', 'Alice'); A.click('#createBtn'); A.wait_for_selector('#vList:not([hidden])', timeout=15000)
+    A.fill('#nameIn', 'Alice'); A.click('#createBtn'); A.click('#dupNew'); A.wait_for_selector('#vList:not([hidden])', timeout=15000)
     A.click('#inviteBtn'); A.wait_for_function("document.querySelector('#inviteLink').value.includes('#i=')"); link = A.input_value('#inviteLink')
     B = page(b, 'B', link); B.wait_for_selector('#invitedBy:not([hidden])'); B.wait_for_function("document.body.dataset.setup === 'ready'")
-    B.fill('#nameIn', 'Bob'); B.click('#createBtn'); B.wait_for_selector('#vChat:not([hidden])', timeout=15000)
+    B.fill('#nameIn', 'Bob'); B.click('#createBtn'); B.click('#dupNew'); B.wait_for_selector('#vChat:not([hidden])', timeout=15000)
     A.evaluate("navigator.serviceWorker.ready.then(() => true)")
 
     home(A); A.click('#settingsBtn')

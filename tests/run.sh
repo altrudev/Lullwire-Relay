@@ -190,6 +190,8 @@ if [ "$E2E" = 1 ]; then
     NPID=$!
     for _ in $(seq 50); do curl -s -o /dev/null "http://localhost:$((PORT+6))/index.html" && break; sleep 0.1; done
     BASE="http://localhost:$((PORT+6))/index.html" python3 tests/notify.py
+    echo "== setup, sounds and message times (browsers)"
+    BASE="http://localhost:$((PORT+6))/index.html" python3 tests/app.py
     kill $NPID 2>/dev/null || true
   fi
   if [ "$IMPL" = phpfile ]; then

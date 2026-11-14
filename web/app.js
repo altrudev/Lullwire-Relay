@@ -975,7 +975,8 @@ if (typeof document !== 'undefined') (() => {
       if (m.file) li.append(fileView(m)); else li.textContent = m.txt;
       if (m.dir !== 'sys') {
         const s = document.createElement('small');
-        s.textContent = fmtTime(m.ts) + (m.dir === 'out' && !m.file ? ' · ' + (m.state === 'failed' ? 'not sent, tap to retry' : m.state) : '');
+        s.textContent = fmtTime(m.ts) + (m.rcv ? ' · arrived ' + fmtTime(m.rcv) : '') +
+          (m.dir === 'out' && !m.file ? ' · ' + (m.state === 'failed' ? 'not sent, tap to retry' : m.state) : '');
         li.append(s);
       }
       if (m.state === 'failed') li.onclick = () => (m.file ? deliverFile : deliver)(contacts.get(m.contact), m);
@@ -1087,7 +1088,7 @@ if (typeof document !== 'undefined') (() => {
     if (st && st.done) return;
     if (!st) {
       const f = { sid: hex(rand(8)), fk: rand(32), id: p.id, name: p.name, type: p.type, size: p.size, n: p.n, h: p.h, got: 0 };
-      const m = { contact: c.id, dir: 'in', txt: '\u{1F4CE} ' + f.name, ts: Date.now(), mid: 'file:' + p.id, state: 'receiving', file: f };
+      const m = Object.assign({ contact: c.id, dir: 'in', txt: '\u{1F4CE} ' + f.name, mid: 'file:' + p.id, state: 'receiving', file: f }, sentTimes(p.ts));
       m.id = await putMessage(m);
       st = { m, have: '0'.repeat(p.n) };
       c.ts = Date.now(); c.last = '\u{1F4CE} ' + f.name;
@@ -1118,8 +1119,46 @@ if (typeof document !== 'undefined') (() => {
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   const swReady = () => Promise.race([navigator.serviceWorker.ready, new Promise(res => setTimeout(() => res(null), 5000))]);
+  // ----- sounds -----
+  // A short chime for new messages and ringing for incoming calls, made with Web Audio
+  // (no sound files). Browsers allow sound only after a first tap, so the audio engine
+  // is started on the first one. On by default; Settings, Sounds turns them off.
+  let actx = null;
+  const sounds = []; // what played, for tests
+  function audio() {
+    if (!actx) { const A = window.AudioContext || window.webkitAudioContext; if (!A) return null; try { actx = new A(); } catch { return null; } }
+    if (actx.state === 'suspended') actx.resume().catch(() => {});
+    return actx;
+  }
+  addEventListener('pointerdown', () => audio(), { capture: true });
+  function tones(freqs, len, gap, vol, what) {
+    if (me && me.sound === false) return;
+    sounds.push(what);
+    const a = audio(); if (!a) return;
+    let t = a.currentTime + 0.03;
+    for (const f of freqs) {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + len + 0.05);
+      t += len + gap;
+    }
+  }
+  const chime = () => tones([880, 1318.5], 0.16, 0.05, 0.2, 'chime');
+  // Rings every 2.5 s while an incoming call is waiting for an answer, and stops on its
+  // own once it's answered, declined or gone.
+  function ring() {
+    const waiting = () => activeCall && activeCall.role === 'callee' && !$('#vCall').hidden && !$('#callBarIncoming').hidden;
+    const once = () => { if (!waiting()) return clearInterval(timer); tones([659.3, 830.6, 659.3, 830.6], 0.11, 0.04, 0.25, 'ring'); };
+    const timer = setInterval(once, 2500); once();
+  }
+  window.__lullwireSounds = () => sounds.slice();
+
   function notify(kind, c, text) {
     const named = me.notifyNames;
+    // In a browser the app chimes for a message that isn't on screen (the Android app's
+    // own notifications make their sound); calls ring through ring().
+    if (kind === 'msg' && !has('notify') && !(document.visibilityState === 'visible' && current === c.id)) chime();
     const title = kind === 'call' ? (named ? c.name : 'Incoming call') : (named ? c.name : 'Lullwire Relay');
     const body = kind === 'call' ? (named ? text : 'Open Lullwire Relay to answer') : (named ? text.slice(0, 120) : 'New message');
     if (has('notify')) {
@@ -1162,7 +1201,9 @@ if (typeof document !== 'undefined') (() => {
       ? 'On iPhone and iPad, first add Lullwire to your Home Screen (Share, then Add to Home Screen) and open it from there.'
       : 'Uses your browser maker\'s push service (Apple, Google or Mozilla). Your relay sends it an encrypted, empty signal, so it learns when you get messages, never who from or what. These popups just say "New message".';
     $('#namesWrap').hidden = !has('setBackground') && !$('#notifyIn').checked;
+    $('#soundIn').checked = me.sound !== false;
   }
+  $('#soundIn').onchange = async e => { me.sound = e.target.checked; await saveMe(); if (me.sound) chime(); };
   $('#notifyIn').onchange = async e => {
     if (e.target.checked) {
       const p = await Notification.requestPermission().catch(() => 'denied');
@@ -1186,6 +1227,19 @@ if (typeof document !== 'undefined') (() => {
     }
     await saveMe(); renderNotify();
   };
+
+  // A received message shows when it was sent: the sender's time, which travels inside
+  // the encrypted, signed message (the relay can't change it). A clock running fast
+  // can't put it in the future, and nothing claims to be older than mail can wait. If
+  // it arrived much later (it waited at the relay while this device was off), the time
+  // it arrived is kept too and shown next to it, since chats list messages in the
+  // order they arrive.
+  const LATE = 5 * 60000;
+  function sentTimes(ts) {
+    const now = Date.now();
+    const sent = Number.isFinite(ts) ? Math.max(Math.min(ts, now), now - 30 * 86400000) : now;
+    return now - sent > LATE ? { ts: sent, rcv: now } : { ts: sent };
+  }
 
   // ----- receive -----
   async function receive(bytes) {
@@ -1218,7 +1272,7 @@ if (typeof document !== 'undefined') (() => {
       }
       const dup = typeof msg.id === 'string' && seen.has(id + ':' + msg.id);
       if (msg.t === 'msg' && typeof msg.txt === 'string' && !dup) {
-        await putMessage({ contact: id, dir: 'in', txt: msg.txt.slice(0, 4000), ts: Date.now(), mid: msg.id });
+        await putMessage(Object.assign({ contact: id, dir: 'in', txt: msg.txt.slice(0, 4000), mid: msg.id }, sentTimes(msg.ts)));
         c.ts = Date.now(); c.last = msg.txt.slice(0, 80);
         if (current !== id) c.unread = (c.unread || 0) + 1;
         if (!c.request) notify('msg', c, msg.txt);
@@ -1574,6 +1628,7 @@ if (typeof document !== 'undefined') (() => {
       }
       activeCall = { c, id: msg.id, role: 'callee', video: !!msg.video, incoming: msg };
       callUI(c, 'Incoming ' + kind, true);
+      ring();
       notify('call', c, 'Incoming ' + kind);
       activeCall.ringTimer = setTimeout(() => { if (activeCall && activeCall.id === msg.id && !activeCall.call) endCall('Missed ' + kind, false); }, 45000);
     } else if ((msg.t === 'call-end' || msg.t === 'call-decline') && activeCall && activeCall.id === msg.id && activeCall.c.id === c.id) {
@@ -2007,10 +2062,15 @@ if (typeof document !== 'undefined') (() => {
     if (/#i=/.test(text) && setupInvite(text)) prepareSetup();
     else if (/#link=/.test(text)) alert('This is a request to move a profile onto a new device. Open it (or scan it) on the device that already has your profile.');
   };
+  // Making a second profile by mistake (instead of moving the one you have) leaves a
+  // stray account on the relay and contacts writing to it, so ask once first.
+  $('#dupMove').onclick = () => { $('#dupAsk').hidden = true; $('#pairBtn').onclick(); };
+  $('#dupNew').onclick = () => { $('#dupAsk').hidden = true; $('#createBtn').dataset.sure = '1'; $('#createBtn').onclick(); };
   $('#createBtn').onclick = async () => {
     const name = $('#nameIn').value.trim(), relay = $('#relayIn').value.trim();
     if (!name) return alert('Enter your name');
     if (!isRelay(relay)) return alert('Relay must be an https:// or .onion address');
+    if (!$('#createBtn').dataset.sure) { $('#dupAsk').hidden = false; $('#dupAsk').scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
     $('#createBtn').disabled = true;
     try {
       const info = await relayInfo(relay);

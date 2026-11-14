@@ -28,7 +28,7 @@ def create(p, name):
     p.wait_for_function("document.body.dataset.setup === 'ready'")  # relay requirements are known
     p.fill('#nameIn', name)
     if p.is_visible('#joinIn'): p.fill('#joinIn', JOIN)
-    p.click('#createBtn'); p.wait_for_selector('#vList:not([hidden]), #vChat:not([hidden])', timeout=15000)
+    p.click('#createBtn'); p.click('#dupNew'); p.wait_for_selector('#vList:not([hidden]), #vChat:not([hidden])', timeout=15000)
 
 def home(p):
     while p.is_visible('#back'): p.click('#back')
@@ -51,7 +51,7 @@ with sync_playwright() as pw:
     B = page(b, 'B', link)
     B.wait_for_selector('#invitedBy:not([hidden])'); B.wait_for_function("document.body.dataset.setup === 'ready'")
     join_hidden = not B.is_visible('#joinIn')
-    B.fill('#nameIn', 'Bob'); B.click('#createBtn'); B.wait_for_selector('#vChat:not([hidden])', timeout=15000)
+    B.fill('#nameIn', 'Bob'); B.click('#createBtn'); B.click('#dupNew'); B.wait_for_selector('#vChat:not([hidden])', timeout=15000)
     print('1 invite link: Bob joined and is chatting with', B.text_content('#title'), '| join code hidden (came in the invite):', join_hidden)
     home(A); A.wait_for_selector('.contact:has-text("Bob")', timeout=15000)
     print('  Alice sees Bob as a contact, not a request:', A.locator('.contact:has-text("Bob") .tag').count() == 0)

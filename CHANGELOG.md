@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 (2026-11-14): sounds, message times and an easier move
+- **Sounds:** a chime when a message arrives that isn't on screen, and ringing for incoming calls until they're answered or declined. On by default; **Settings → Sounds** turns them off. The Android app's notifications keep Android's own sounds
+- **Message times:** a received message shows when it was **sent** (the sender's time, carried inside the encrypted message), not when this device got it. If it arrived much later (it waited at the relay while the device was off), the time it arrived is shown next to it. Times in the future are capped at now. Files too
+- **Moving instead of a second profile:** **Create profile** first asks whether you already use Lullwire on another device, with **Move it here** as the main choice, since a new profile is a separate account that contacts of the old one won't reach. The move screen lists the steps, including how to use a screenshot when the other device has no camera
+- Tests: a browser test of the new question, the move screen, chimes (and none for the open chat or with Sounds off), ringing until a call is declined, and sent/arrived times
+
 ## 0.8.0 (2026-11-14): owner dashboard, single-use invites and notifications
 - **Notifications in the browser:** with **Settings → Notifications** on, a popup when a message or call arrives while the app is in the background or another tab (generic unless names are on); the app then stays connected in the background
 - **Notifications while closed (Web Push, opt-in):** **Also when Lullwire is closed** asks the browser maker's push service to wake the app. The relay (`-push`, on by default, off by default with `-onion`) sends an encrypted, empty signal when mail arrives and the app isn't connected; the popup says "New message". Apple or Google learn when messages arrive, never who from or what. On iPhone and iPad it works from the Home Screen (iOS 16.4+). Only the push services' own hosts are contacted; subscriptions are capped, expire, and go when a member is removed

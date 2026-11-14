@@ -62,7 +62,7 @@ def invite(p):
 def join_from(b, tag, link, name):
     p = page(b, tag, link)
     p.wait_for_selector('#invitedBy:not([hidden])'); p.wait_for_function("document.body.dataset.setup === 'ready'")
-    p.fill('#nameIn', name); n = len(dialogs); p.click('#createBtn')
+    p.fill('#nameIn', name); n = len(dialogs); p.click('#createBtn'); p.click('#dupNew')
     try:
         p.wait_for_selector('#vChat:not([hidden])', timeout=8000); return p, True
     except Exception:
@@ -73,7 +73,7 @@ with sync_playwright() as pw:
 
     # Alice runs the relay; she signed up with its shared code.
     A = page(b, 'A'); A.wait_for_function("document.body.dataset.setup === 'ready'")
-    A.fill('#nameIn', 'Alice'); A.fill('#joinIn', JOIN); A.click('#createBtn'); A.wait_for_selector('#vList:not([hidden])', timeout=15000)
+    A.fill('#nameIn', 'Alice'); A.fill('#joinIn', JOIN); A.click('#createBtn'); A.click('#dupNew'); A.wait_for_selector('#vList:not([hidden])', timeout=15000)
 
     # 1. Claim with a code from the server.
     A.click('#settingsBtn'); check('Owner dashboard offered by a Go relay', A.is_visible('#ownerBtn'))

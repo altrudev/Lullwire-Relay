@@ -177,3 +177,8 @@ code,.code{font-family:var(--mono)}
 .olist li .btn{min-height:36px;padding:0 10px}
 .olist .empty{color:var(--muted);font-size:14px}
 code.cmd{display:block;padding:8px 10px;background:var(--surface-2);border-radius:var(--radius-s);word-break:break-all}
+
+/* "Already use Lullwire?" before making a second profile; move steps */
+.dup-ask{margin-top:12px;padding:12px 14px;border:1px solid var(--accent);border-radius:var(--radius-s);background:var(--surface-2)}
+ol.steps{margin:8px 0 12px;padding-left:22px;line-height:1.5}
+ol.steps li{margin:4px 0}

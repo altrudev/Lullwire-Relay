@@ -53,6 +53,11 @@
         <input id="pasteInviteIn" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Paste it here">
       </div>
       <p class="mt16"><button id="createBtn" class="btn primary block">Create profile</button></p>
+      <div id="dupAsk" class="dup-ask" hidden>
+        <strong>Already use Lullwire on another phone or computer?</strong>
+        <p class="small muted mt4">Move that profile here instead: you keep the same account, contacts and invites. A new profile is a separate account, and people who know the old one won't reach you on it.</p>
+        <div class="row mt10"><button id="dupMove" class="btn primary">Move it here</button><button id="dupNew" class="btn">I'm new, create one</button></div>
+      </div>
       <details><summary>Advanced</summary>
         <label for="relayIn">Relay address</label>
         <input id="relayIn" autocomplete="off" spellcheck="false" class="link-input">
@@ -154,7 +159,12 @@
   <!-- New device waiting to receive a profile -->
   <section id="vPair" class="view" hidden><div class="narrow pad sheet">
     <h2>Move your profile here</h2>
-    <p class="muted">On your other phone, open Lullwire Relay, tap <b>Scan</b> and scan this code. You can also send the link or a picture of it to yourself.</p>
+    <ol class="steps muted">
+      <li>On the device that has your profile now, open Lullwire.</li>
+      <li>Tap <b>Scan</b> (the square at the top of your chats) and point it at this code.</li>
+      <li>Check that both show the same number below, then tap <b>Approve</b> there.</li>
+    </ol>
+    <p class="small muted">No camera there (a computer)? Take a screenshot of this code, get it onto that device, then tap <b>Scan</b>, <b>Choose a picture</b>.</p>
     <img id="pairQR" class="qr" alt="Move code">
     <p class="small muted">Your other phone must show this same number:</p>
     <div id="pairCode" class="code-big"></div>
@@ -257,6 +267,7 @@
       </div>
       <label class="toggle" id="coverWrap"><span><strong>Cover traffic</strong><span class="small muted block">Sends a little random traffic now and then, so someone watching your network can't tell when you send or receive. Uses about 1 MB an hour.</span></span><input type="checkbox" id="coverIn"></label>
       <label class="toggle" id="bgWrap" hidden><span><strong>Stay connected in the background</strong><span class="small muted block">Messages and calls arrive while the app is closed. Android shows a small "connected" notification.</span></span><input type="checkbox" id="bgIn"></label>
+      <label class="toggle" id="soundWrap"><span><strong>Sounds</strong><span class="small muted block">A chime for new messages and ringing for incoming calls, while Lullwire is open.</span></span><input type="checkbox" id="soundIn"></label>
       <label class="toggle" id="notifyWrap" hidden><span><strong>Notifications</strong><span class="small muted block">A popup when a message or call arrives while Lullwire is open in the background or in another tab.</span></span><input type="checkbox" id="notifyIn"></label>
       <label class="toggle" id="pushWrap" hidden><span><strong>Also when Lullwire is closed</strong><span class="small muted block" id="pushHint"></span></span><input type="checkbox" id="pushIn"></label>
       <label class="toggle" id="namesWrap" hidden><span><strong>Show names in notifications</strong><span class="small muted block">When off, notifications only say "New message".</span></span><input type="checkbox" id="namesIn"></label>
@@ -293,7 +304,7 @@
     <h3>Danger zone</h3>
     <div class="card"><button id="wipeBtn" class="btn danger">Erase everything on this device</button></div>
 
-    <p class="small muted foot">Lullwire Relay <span id="appVer">0.8.0</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
+    <p class="small muted foot">Lullwire Relay <span id="appVer">0.8.1</span> · © 2026 Valentyn Rukhaylo (<a href="https://altru.dev" target="_blank" rel="noopener noreferrer">ALTRU.dev</a>).<br>Free software under the GNU AGPL v3.0 or later, with no warranty. Experimental: not independently audited.
       <a href="https://github.com/altrudev/Lullwire-Relay" target="_blank" rel="noopener noreferrer">Source code</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a> ·
       <a href="https://github.com/altrudev/Lullwire-Relay/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></p>
