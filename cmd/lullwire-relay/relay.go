@@ -533,6 +533,46 @@ func (r *Relay) join(w http.ResponseWriter, req *http.Request, box string, in ma
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
+	// A profile restored on another device (backup key, recovery words) takes a fresh
+	// mailbox, so the copy it replaced stops receiving: the member hands its membership
+	// over, proving it with the old mailbox secret. The old mailbox is no longer a
+	// member, its live connections close, and its push subscriptions go.
+	if by, ok := strArg(in, "by", 64); ok && in["transfer"] == true {
+		old := sha256hex(by)[:32]
+		r.mu.Lock()
+		member := r.members[old]
+		r.mu.Unlock()
+		if !member || !r.allow("transfer", old, time.Hour, 6) {
+			fail(w, 403, "not a member")
+			return
+		}
+		if old != box {
+			rec, _ := os.ReadFile(filepath.Join(r.memberDir, old))
+			if err := os.WriteFile(filepath.Join(r.memberDir, box), rec, 0o600); err != nil {
+				fail(w, 500, "storage error")
+				return
+			}
+			_ = os.Remove(filepath.Join(r.memberDir, old))
+			r.removePush(old)
+			r.mu.Lock()
+			r.members[box] = true
+			delete(r.members, old)
+			delete(r.seen, old)
+			var cs []*wsConn
+			for c := range r.mailConns[old] {
+				cs = append(cs, c)
+			}
+			r.mu.Unlock()
+			closeConns(cs)
+			log.Print("a member moved to a new mailbox (restored on another device)")
+		}
+		r.touch(box)
+		r.mu.Lock()
+		mk, off := r.memberKey, r.sharedOff
+		r.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "k": mk, "shared": !off})
+		return
+	}
 	// Moving a profile to a new device uses two temporary mailboxes; the member's app
 	// admits them for an hour, proving membership with its own mailbox secret. They
 	// aren't members (not listed, not counted, gone after the hour), and a member can
@@ -680,7 +720,10 @@ func (r *Relay) store(box string, body []byte) (int, string) {
 		unlock()
 		return 500, "storage error"
 	}
-	id := fmt.Sprintf("%010d", r.now().Unix()) + randHex(6)
+	// Seconds, then microseconds (6 hex digits), then a random tiebreak: ids sort in the
+	// order mail arrived, so messages sent in the same second are fetched in order.
+	t := r.now()
+	id := fmt.Sprintf("%010d%06x", t.Unix(), t.Nanosecond()/1000) + randHex(3)
 	err := atomicWrite(filepath.Join(r.boxDir(box), id+".m"), body)
 	unlock()
 	if err != nil {

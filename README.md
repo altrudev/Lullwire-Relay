@@ -51,6 +51,7 @@ For people at risk, the guide explains a [hidden setup](docs/SELF-HOSTING.md#hid
 - **Files:** send photos, documents and anything else up to 16 MB, end-to-end encrypted like messages. Photos get a preview; the recipient's app checks every file against its SHA-256 before showing it.
 - **Voice and video calls:** encrypted end to end with a fresh key per call, carried over your relay's HTTPS connection. No peer-to-peer link, so neither side sees the other's IP address.
 - **Private relay:** a hidden path with a plain front page, and invite-only mode so strangers can't use your server. Invite links carry what's needed to join, so friends just tap and start.
+- **Backup key:** a small file you save once. It brings your profile and contacts back on a new phone, another browser or after reinstalling: pick the file, nothing to type.
 - **Notifications:** popups while the app is in the background, in any browser. Optionally also while it's closed (Web Push, iPhone included once it's on the Home Screen), with an encrypted, empty signal: no names or text pass through Apple or Google.
 - **Owner dashboard:** see how many people use your relay and how actively, make single-use invites, remove someone, and restart the relay, all from your app. Members are anonymous ids to the relay; your app names the ones in your contacts.
 - **Android app:** a small APK (no app store, no Google services) built with the plain SDK tools; it blocks screenshots and keeps keys out of cloud backups.

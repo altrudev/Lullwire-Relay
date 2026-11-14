@@ -343,7 +343,7 @@ async function backupData(me, contacts) {
   return {
     v: 3,
     me: { jwk: { kty, crv, x, y, d }, pub: me.pub, secret: me.secret, box: me.box,
-          name: me.name, relay: me.relay, rec: me.rec || null, join: me.join || null, inviteTok: me.inviteTok || null },
+          name: me.name, relay: me.relay, rec: me.rec || null, bk: me.bk || null, join: me.join || null, inviteTok: me.inviteTok || null },
     at: Date.now(),
     // Unanswered message requests are left out, so strangers cannot bloat the backup.
     // If there are more contacts than fit, verified and recently active ones come first.
@@ -365,6 +365,7 @@ async function restoreData(data) {
     throw new Error('mailbox mismatch');
   if (!isRelay(rest.relay)) throw new Error('bad relay address');
   rest.name = String(rest.name || '').slice(0, 40);
+  if (rest.bk && !isBackupKey(rest.bk)) rest.bk = null;
   const { kty, crv, x, y, d } = jwk;
   const me = { ...rest, ...keys, jwk: { kty, crv, x, y, d }, spks: [] };
   await rotatePrekeys(me);
@@ -423,7 +424,28 @@ async function sealRecovery(rec, data) {
   const pt = new Uint8Array(Math.ceil((json.length + 1) / 16384) * 16384).fill(0x20); pt.set(json);
   return b64e(await aesEnc(b64d(rec.k), pt, recAd(rec)));
 }
-const recAd = rec => enc.encode((rec.v === 2 ? 'lullwire/recovery:' : 'hush-recovery:') + rec.l);
+const recAd = rec => enc.encode((rec.v === 3 ? 'lullwire/backup-key:' : rec.v === 2 ? 'lullwire/recovery:' : 'hush-recovery:') + rec.l);
+
+// Backup key: random keys in a small file the person keeps (instead of words to write
+// down). It opens the same kind of encrypted slot on the relay as recovery words, kept
+// up to date as contacts change, so a new device, browser or reinstall gets the
+// profile back from the file alone: the file names the relay too. Whoever has the file
+// can open the profile, like a house key.
+function newBackupKey() { return { v: 3, l: hex(rand(16)), t: hex(rand(32)), k: b64e(rand(32)) }; }
+function isBackupKey(k) {
+  if (!k || k.v !== 3 || !/^[0-9a-f]{32}$/.test(k.l) || !/^[0-9a-f]{64}$/.test(k.t) || typeof k.k !== 'string') return false;
+  try { return b64d(k.k).length === 32; } catch { return false; }
+}
+function keyFileText(me) {
+  return JSON.stringify({ lullwire: 'backup-key', v: 1, name: me.name, relay: me.relay, l: me.bk.l, t: me.bk.t, k: me.bk.k }, null, 1);
+}
+function readKeyFile(text) {
+  let o;
+  try { o = JSON.parse(text); } catch { o = null; }
+  const bk = o && { v: 3, l: o.l, t: o.t, k: o.k };
+  if (!o || o.lullwire !== 'backup-key' || !isRelay(o.relay) || !isBackupKey(bk)) throw new Error('That file isn\'t a Lullwire backup key.');
+  return { relay: o.relay, name: String(o.name || '').slice(0, 40), bk };
+}
 async function openRecovery(rec, d) {
   return JSON.parse(dec.decode(await aesDec(b64d(rec.k), b64d(d), recAd(rec)))); // raw bundle; adopt() verifies it
 }
@@ -753,7 +775,7 @@ if (typeof document !== 'undefined') (() => {
   }
 
   // ----- views -----
-  const views = ['vLock', 'vSetup', 'vList', 'vInvite', 'vAdd', 'vScan', 'vChat', 'vSafety', 'vPair', 'vLink', 'vSettings', 'vOwner'];
+  const views = ['vLock', 'vSetup', 'vList', 'vInvite', 'vAdd', 'vScan', 'vChat', 'vSafety', 'vPair', 'vLink', 'vSettings', 'vOwner', 'vKey'];
   function show(v, title, sub) {
     for (const x of views) $('#' + x).hidden = x !== v;
     $('#title').textContent = title || 'Lullwire Relay';
@@ -885,7 +907,7 @@ if (typeof document !== 'undefined') (() => {
 
   // ----- contact list -----
   async function renderList() {
-    renderInstall();
+    renderInstall(); renderKeyCard();
     const ul = $('#contactList'); ul.textContent = '';
     const arr = [...contacts.values()].filter(c => !c.blocked).sort((a, b) => b.ts - a.ts);
     $('#empty').hidden = arr.length > 0;
@@ -1132,9 +1154,9 @@ if (typeof document !== 'undefined') (() => {
   addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('Lullwire is installed'); });
   function renderInstall() {
     const can = !installed() && (!!installEvt || iosInstall());
-    // On iPhone the Home Screen app doesn't see Safari's data: say how to move the profile.
+    // On iPhone the Home Screen app doesn't see Safari's data: the backup key brings the profile over.
     const hint = iosInstall()
-      ? 'Tap Share, then Add to Home Screen. The Home Screen app starts empty (Safari keeps its data apart), so open it, choose Move it here and take a screenshot of the code; then come back to Safari, tap Scan, Choose a picture.'
+      ? 'Tap Share, then Add to Home Screen. Open it from there and tap Restore from backup key.'
       : 'Opens like an app from its own icon, works offline, and can notify you.';
     $('#installCard').hidden = !can || !me || !!me.installHide;
     $('#installHint').textContent = hint;
@@ -1152,23 +1174,7 @@ if (typeof document !== 'undefined') (() => {
   $('#installBtn').onclick = install;
   $('#installSetBtn').onclick = install;
   $('#installClose').onclick = async () => { me.installHide = true; await saveMe(); renderInstall(); };
-  // Before a profile exists, iPhone users in Safari are sent to the Home Screen first:
-  // a profile made in Safari stays in Safari. An invite can't follow by itself (links
-  // open in Safari), so it's copied for pasting there.
-  function renderIosFirst() {
-    const show = iosInstall() && !sessionStorageGet('iosStay');
-    $('#iosFirst').hidden = !show;
-    $('#iosCopyStep').hidden = $('#iosPasteStep').hidden = !pendingInvite;
-  }
-  function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
-  $('#iosStay').onclick = e => { e.preventDefault(); try { sessionStorage.setItem('iosStay', '1'); } catch {} $('#iosFirst').hidden = true; };
-  $('#iosCopyBtn').onclick = async () => {
-    const raw = pendingInvite && pendingInvite.raw;
-    if (!raw) return;
-    const link = /^#/.test(raw) ? location.href.split('#')[0] + raw : raw;
-    try { await navigator.clipboard.writeText(link); toast('Invite link copied'); }
-    catch { prompt('Copy this invite link:', link); }
-  };
+
 
   // ----- sounds -----
   // A short chime for new messages and ringing for incoming calls, made with Web Audio
@@ -1706,22 +1712,94 @@ if (typeof document !== 'undefined') (() => {
   $('#voiceBtn').onclick = () => startCall(false);
   $('#videoBtn').onclick = () => startCall(true);
 
+  // ----- backup key -----
+  // Every profile gets one; the person saves the file once (Save your backup key) and
+  // brings the profile back on any device with Restore from backup key.
+  async function ensureBackupKey() {
+    if (!me || me.bk) return;
+    me.bk = newBackupKey(); await saveMe();
+    await syncRecovery();
+  }
+  async function saveKeyFile() {
+    if (!me.bk) me.bk = newBackupKey();
+    toast('Saving…', 0);
+    const ok = await syncRecovery(); toast('');
+    if (!ok) return alert(/429/.test(me.recError || '') ? 'Your relay limits how many new backups can be made from one network per day. Try again tomorrow.'
+      : 'Could not reach your relay to store your backup. Check your connection and try again.');
+    const text = keyFileText(me);
+    const fname = 'Lullwire backup key - ' + (me.name.replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'profile') + '.lwkey';
+    try {
+      if (AND) AND.saveFile(fname, text);
+      else {
+        const file = new File([text], fname, { type: 'application/octet-stream' });
+        // iPhone: the share sheet's Save to Files is the dependable way to keep a file.
+        if (isIOS && navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
+        else {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(file); a.download = fname;
+          document.body.append(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        }
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return false; return alert('Could not save the file: ' + e.message); }
+    me.bkSaved = true; await saveMe();
+    toast('Backup key saved. Keep it private: it opens your profile.', 4000);
+    renderKeyCard();
+    return true;
+  }
+  let afterKey = null;
+  function showKeySave(next) { afterKey = next || goHome; show('vKey', 'Your backup key'); }
+  $('#keySaveBtn').onclick = async () => { if (await saveKeyFile()) { const n = afterKey; afterKey = null; (n || goHome)(); } };
+  $('#keyLater').onclick = e => { e.preventDefault(); const n = afterKey; afterKey = null; (n || goHome)(); };
+  function renderKeyCard() { $('#keyCard').hidden = !me || me.bkSaved === true; }
+  $('#keyCardBtn').onclick = () => showKeySave(goHome);
+  $('#keySettingsBtn').onclick = () => saveKeyFile();
+  $('#keyNewBtn').onclick = async e => {
+    e.preventDefault();
+    if (!confirm('Make a new backup key? Your current backup key file stops working, and you\'ll save the new one.')) return;
+    const old = me.bk; me.bk = newBackupKey(); me.bkSaved = false; await saveMe();
+    if (await saveKeyFile() !== true) return;
+    if (old) fetch(me.relay + '?a=rdel', { method: 'POST', headers: TP, body: JSON.stringify({ l: old.l, t: old.t }) }).catch(() => {});
+  };
+  // Restore: pick the file; the profile comes back from the relay it names.
+  async function restoreFromKey(file) {
+    if (!file) return;
+    let k;
+    try { k = readKeyFile(await file.text()); } catch (e) { return alert(e.message); }
+    toast('Restoring your profile…', 0);
+    try {
+      const r = await fetch(k.relay + '?a=rget', { method: 'POST', headers: TP, body: JSON.stringify({ l: k.bk.l }) });
+      if (r.status === 404) throw new Error('Your backup isn\'t on its relay any more (' + new URL(k.relay).host + '). If you made a new backup key since, use that file.');
+      if (!r.ok) throw new Error('Your relay didn\'t answer (' + r.status + '). Check your connection and try again.');
+      const data = await openRecovery(k.bk, (await r.json()).d);
+      data.me.bk = k.bk; data.me.bkSaved = true;
+      await adopt(data, true);
+      toast('Welcome back' + (k.name ? ', ' + k.name : ''), 3000);
+    } catch (e) { toast(''); alert(e.message); }
+  }
+  for (const id of ['#keyFile', '#keyFile2']) $(id).onchange = e => { const f = e.target.files[0]; e.target.value = ''; restoreFromKey(f); };
+
   // ----- recovery words -----
   let syncTimer = null;
-  function scheduleSync() { if (me && me.rec) { clearTimeout(syncTimer); syncTimer = setTimeout(syncRecovery, 2000); } }
+  function scheduleSync() { if (me && (me.rec || me.bk)) { clearTimeout(syncTimer); syncTimer = setTimeout(syncRecovery, 2000); } }
+  // Updates the encrypted copies on the relay: the backup key's and the recovery words'.
   async function syncRecovery() {
-    if (!me || !me.rec) return false;
+    const slots = me ? [me.bk, me.rec].filter(Boolean) : [];
+    if (!slots.length) return false;
     try {
-      if ([...contacts.values()].filter(c => !c.request).length > BACKUP_CONTACTS) toast('You have more than ' + BACKUP_CONTACTS + ' contacts; only the verified and most recent ones fit in your recovery backup', 6000);
-      const d = await sealRecovery(me.rec, await bundle());
-      const r = await fetch(me.relay + '?a=rput', { method: 'POST', headers: TP, body: JSON.stringify({ l: me.rec.l, t: me.rec.t, d, s: me.secret }) });
-      if (!r.ok) throw new Error('relay answered ' + r.status);
+      if ([...contacts.values()].filter(c => !c.request).length > BACKUP_CONTACTS) toast('You have more than ' + BACKUP_CONTACTS + ' contacts; only the verified and most recent ones fit in your backup', 6000);
+      const data = await bundle();
+      for (const rec of slots) {
+        const d = await sealRecovery(rec, data);
+        const r = await fetch(me.relay + '?a=rput', { method: 'POST', headers: TP, body: JSON.stringify({ l: rec.l, t: rec.t, d, s: me.secret }) });
+        if (!r.ok) throw new Error('relay answered ' + r.status);
+      }
       if (me.recError) { me.recError = null; await saveMe(); }
       return true;
     } catch (e) {
       console.warn('recovery sync failed', e);
       me.recError = String(e.message || e); await saveMe();
-      toast('Recovery backup could not be updated — see Settings', 5000);
+      toast('Your backup could not be updated — see Settings', 5000);
       return false;
     }
   }
@@ -1773,7 +1851,7 @@ if (typeof document !== 'undefined') (() => {
       if (!r.ok) throw new Error('Relay error ' + r.status);
       const data = await openRecovery(rec, (await r.json()).d);
       data.me.rec = rec;
-      await adopt(data);
+      await adopt(data, true);
     } catch (e) { alert(e.message); }
     toast('');
   };
@@ -1782,7 +1860,6 @@ if (typeof document !== 'undefined') (() => {
   // New device: show a one-time QR holding a fresh public key and a mailbox to drop the profile into.
   let pairing = null;
   $('#pairBtn').onclick = async () => {
-    $('#pairIosSafari').hidden = !(isIOS && standalone()); // the profile may be in Safari on this same phone
     const relay = $('#relayIn').value.trim() || defaultRelay();
     if (!isRelay(relay)) return alert('Relay must be an https:// or .onion address');
     const kp = await genKP(), secret = hex(rand(32)), box = (await sha(secret)).slice(0, 32);
@@ -1877,13 +1954,29 @@ if (typeof document !== 'undefined') (() => {
   };
 
   // Take over a profile bundle (move, recovery words or backup file).
-  async function adopt(data) {
+  // fresh: a restore (backup key or recovery words), where the copy it came from may
+  // still be running. This copy then takes a new mailbox on the same relay (on an
+  // invite-only relay the membership moves with it), collects what's waiting in the
+  // old one, and its new address card reaches contacts with the session resets, so
+  // they send here and the old copy stops receiving. A move doesn't need this: the old
+  // device signs itself out.
+  async function adopt(data, fresh) {
     const r = await restoreData(data);
     await saveIdentity(r.me.jwk); delete r.me.jwk;
     me = r.me;
     if (!me.inviteTok) me.inviteTok = b64e(rand(12));
     const info = await relayInfo(me.relay); me.calls = info.calls; me.mail = info.mail;
     if (has('setBackground')) me.bg = true;
+    let oldSecret = null;
+    if (fresh) {
+      const secret = hex(rand(32)), box = (await sha(secret)).slice(0, 32);
+      let ok = !info.invite;
+      if (info.invite) {
+        const t = await fetch(me.relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify({ s: secret, by: me.secret, transfer: true }) }).catch(() => null);
+        if (t && t.ok) { const j = await t.json().catch(() => ({})); if (typeof j.k === 'string') me.memberKey = j.k; ok = true; }
+      }
+      if (ok) { oldSecret = me.secret; me.secret = secret; me.box = box; }
+    }
     await saveMe();
     for (const x of r.contacts) {
       if (!isBox(x.box) || !isRelay(x.relay)) continue;
@@ -1893,9 +1986,26 @@ if (typeof document !== 'undefined') (() => {
       c.floor = Date.now(); // opening messages from before this copy of the profile are replays
       contacts.set(c.id, c); await saveContact(c);
     }
+    if (oldSecret) await drainMailbox(oldSecret);
     start();
+    if (oldSecret) scheduleSync(); // the backup now names the new mailbox
     // Ratchet state never travels; tell each contact to switch to a fresh session.
     for (const c of contacts.values()) if (!c.blocked) post(c, { t: 'reset', id: hex(rand(8)), ts: Date.now() }).catch(() => {});
+  }
+  // Collects whatever is still waiting in a mailbox this copy no longer uses.
+  async function drainMailbox(secret) {
+    for (let round = 0; round < 20; round++) {
+      let items;
+      try {
+        const r = await fetch(me.relay + '?a=get', { method: 'POST', headers: TP, body: JSON.stringify({ s: secret }) });
+        if (!r.ok) return;
+        items = await r.json();
+      } catch { return; }
+      if (!Array.isArray(items) || !items.length) return;
+      const done = [];
+      for (const it of items) { try { await receive(fromStd(it.d)); } catch (e) { console.warn('dropped message', e); } done.push(it.id); }
+      await fetch(me.relay + '?a=ack', { method: 'POST', headers: TP, body: JSON.stringify({ s: secret, ids: done }) }).catch(() => {});
+    }
   }
   function wipe(msg) {
     me = null; vk = null; mkRaw = null;
@@ -2082,7 +2192,6 @@ if (typeof document !== 'undefined') (() => {
   // ----- sign up -----
   let setupInfo = null;
   async function prepareSetup() {
-    renderIosFirst();
     const relay = $('#relayIn').value.trim() || defaultRelay();
     setupInfo = await relayInfo(relay);
     const fromInvite = pendingInvite && pendingInvite.j;
@@ -2099,7 +2208,7 @@ if (typeof document !== 'undefined') (() => {
       pendingInvite = Object.assign({ raw: text }, o);
       paintAvatar($('#invitedAvatar'), o.n, o.p);
       $('#invitedName').textContent = String(o.n || 'Someone').slice(0, 40);
-      $('#invitedBy').hidden = false; $('#pasteInviteWrap').hidden = true; renderIosFirst();
+      $('#invitedBy').hidden = false; $('#pasteInviteWrap').hidden = true;
       if (!$('#relayIn').value.trim() && isRelay(o.r)) $('#relayIn').value = o.r;
       return true;
     } catch { return false; }
@@ -2117,7 +2226,7 @@ if (typeof document !== 'undefined') (() => {
   };
   // Making a second profile by mistake (instead of moving the one you have) leaves a
   // stray account on the relay and contacts writing to it, so ask once first.
-  $('#dupMove').onclick = () => { $('#dupAsk').hidden = true; $('#pairBtn').onclick(); };
+  $('#dupMove').onclick = e => { e.preventDefault(); $('#dupAsk').hidden = true; $('#pairBtn').onclick(); };
   $('#dupNew').onclick = () => { $('#dupAsk').hidden = true; $('#createBtn').dataset.sure = '1'; $('#createBtn').onclick(); };
   $('#createBtn').onclick = async () => {
     const name = $('#nameIn').value.trim(), relay = $('#relayIn').value.trim();
@@ -2145,12 +2254,16 @@ if (typeof document !== 'undefined') (() => {
       if (has('setBackground')) draft.bg = true;
       await saveIdentity(draft.jwk); delete draft.jwk;
       me = draft;
+      me.bk = newBackupKey();
       await saveMe();
       start();
+      let next = goHome;
       if (pendingInvite) {
         const inv = pendingInvite; pendingInvite = null;
-        try { const c = await addFromInvite(inv.raw); openChat(c.id); } catch (e) { alert(e.message); }
+        try { const c = await addFromInvite(inv.raw); next = () => openChat(c.id); } catch (e) { alert(e.message); }
       }
+      syncRecovery();
+      showKeySave(next);
     } finally { $('#createBtn').disabled = false; }
   };
   $('#restoreBtn').onclick = async () => {
@@ -2218,6 +2331,11 @@ if (typeof document !== 'undefined') (() => {
     renewedAt = Date.now();
     try {
       const r = await fetch(me.relay + '?a=join', { method: 'POST', headers: TP, body: JSON.stringify({ s: me.secret, code: me.join || undefined }) });
+      if (r.status === 403 && (me.memberKey || me.join) && !me.goneSaid) {
+        // No longer a member: the profile was restored on another device (or the relay's owner removed it).
+        me.goneSaid = true; await saveMe();
+        alert('This copy of your profile no longer gets messages: it was restored on another device, or removed from ' + new URL(me.relay).host + '. Use the other device, or restore from your backup key here.');
+      }
       if (!r.ok) return;
       const j = await r.json().catch(() => ({}));
       let dirty = false;
@@ -2362,7 +2480,8 @@ if (typeof document !== 'undefined') (() => {
     goHome(); handleHash();
     if (started) return; started = true;
     // Invite-only relays expire memberships nobody renews; renew ours quietly on every start.
-    renewMembership(true);
+    // Profiles from before 0.8.2 get a backup key now (after renewing: storing it needs membership).
+    renewMembership(true).then(ensureBackupKey);
     if (has('setBackground')) AND.setBackground(me.bg !== false);
     keepPrekeysFresh(); setInterval(keepPrekeysFresh, 6 * 3600000);
     // Learn what the relay supports (live connection, calls) before choosing how to receive.

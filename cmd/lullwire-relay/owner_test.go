@@ -412,3 +412,42 @@ func TestTemporaryMailboxesForMoves(t *testing.T) {
 		t.Errorf("expired temporary mailboxes not swept: %d", len(r.temp))
 	}
 }
+
+func TestTransferMembership(t *testing.T) {
+	r, lsrv := liveServer(t, "jc")
+	h := lsrv.Config.Handler
+	joinWith(h, secret(1), "jc")
+	oldBox, newBox := boxOf(secret(1)), boxOf(secret(2))
+	ws := dialWS(t, lsrv, "/live")
+	ws.json(map[string]any{"op": "mail", "s": secret(1)})
+	ws.expectOp(t, "ready")
+	transfer := func(s, by string) (int, map[string]any) {
+		rec, m := do(h, call{url: "/relay.php?a=join", body: `{"s":"` + s + `","by":"` + by + `","transfer":true}`})
+		return rec.Code, m
+	}
+	if c, _ := transfer(secret(3), secret(99)); c != 403 {
+		t.Errorf("a non-member handed over a membership: %d", c)
+	}
+	c, m := transfer(secret(2), secret(1))
+	if c != 200 || !isHex(m["k"].(string), 64) {
+		t.Fatalf("transfer = %d %v", c, m)
+	}
+	if !r.isMember(newBox) || r.isMember(oldBox) {
+		t.Error("membership not moved to the new mailbox")
+	}
+	if rec, _ := do(h, call{url: "/relay.php?a=put&box=" + oldBox, body: blob(200)}); rec.Code != 404 {
+		t.Errorf("the old mailbox still takes mail: %d", rec.Code)
+	}
+	if _, _, err := ws.read(2 * time.Second); err == nil {
+		if _, _, err = ws.read(2 * time.Second); err == nil {
+			t.Error("the old mailbox's live connection stayed open")
+		}
+	}
+	if c, _ := transfer(secret(4), secret(1)); c != 403 {
+		t.Errorf("the old secret transferred twice: %d", c)
+	}
+	// The old copy's renewal is refused, which is how it learns it was replaced.
+	if c, _ := joinWith(h, secret(1), ""); c != 403 {
+		t.Errorf("renewal by the replaced copy = %d", c)
+	}
+}

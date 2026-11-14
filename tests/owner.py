@@ -64,6 +64,7 @@ def join_from(b, tag, link, name):
     p.wait_for_selector('#invitedBy:not([hidden])'); p.wait_for_function("document.body.dataset.setup === 'ready'")
     p.fill('#nameIn', name); n = len(dialogs); p.click('#createBtn'); p.click('#dupNew')
     try:
+        p.click('#keyLater', timeout=8000)  # only shown once the profile exists
         p.wait_for_selector('#vChat:not([hidden])', timeout=8000); return p, True
     except Exception:
         return p, False
@@ -73,7 +74,7 @@ with sync_playwright() as pw:
 
     # Alice runs the relay; she signed up with its shared code.
     A = page(b, 'A'); A.wait_for_function("document.body.dataset.setup === 'ready'")
-    A.fill('#nameIn', 'Alice'); A.fill('#joinIn', JOIN); A.click('#createBtn'); A.click('#dupNew'); A.wait_for_selector('#vList:not([hidden])', timeout=15000)
+    A.fill('#nameIn', 'Alice'); A.fill('#joinIn', JOIN); A.click('#createBtn'); A.click('#dupNew'); A.click('#keyLater'); A.wait_for_selector('#vList:not([hidden])', timeout=15000)
 
     # 1. Claim with a code from the server.
     A.click('#settingsBtn'); check('Owner dashboard offered by a Go relay', A.is_visible('#ownerBtn'))
@@ -117,7 +118,7 @@ with sync_playwright() as pw:
 
     # 6. Bob moves to a new phone after the shared code is off (temporary mailboxes).
     home(B); B.click('#back') if B.is_visible('#back') else None
-    E = page(b, 'E'); E.click('#pairBtn'); E.wait_for_function("document.querySelector('#pairQR').naturalWidth>0")
+    E = page(b, 'E'); E.click('details:has(#pairBtn) > summary'); E.click('#pairBtn'); E.wait_for_function("document.querySelector('#pairQR').naturalWidth>0")
     E.locator('#pairQR').screenshot(path=S + 'pair.png')
     home(B); B.click('#scanBtn'); B.set_input_files('#scanFile', S + 'pair.png'); B.wait_for_selector('#vLink:not([hidden])')
     B.click('#linkApprove')

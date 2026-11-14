@@ -3,9 +3,9 @@
 """Browser test of installing the app, run via tests/run.sh --go --e2e: Chrome's own
 installability check finds nothing missing; when the browser offers installing, the
 chat list shows an Install card whose button opens the browser's dialog; Not now
-hides it (Settings still offers it); on iPhone, Safari sends people to the Home Screen
-before they make a profile (Safari and the Home Screen app keep separate data), copies
-their invite for pasting there, and explains moving a profile made in Safari."""
+hides it (Settings still offers it); on iPhone the card says to add it to the Home
+Screen and bring the profile over with the backup key (Safari and the Home Screen app
+keep separate data); a pasted invite link is taken during setup."""
 import os, sys, tempfile
 from playwright.sync_api import sync_playwright
 
@@ -26,7 +26,7 @@ def start(b, tag, **ctx):
     p.on('pageerror', lambda e: errs.append(tag + ': ' + str(e)))
     p.on('dialog', lambda d: d.accept())
     p.goto(U); p.wait_for_function("document.body.dataset.setup === 'ready'")
-    p.fill('#nameIn', tag); p.click('#createBtn'); p.click('#dupNew'); p.wait_for_selector('#vList:not([hidden])', timeout=15000)
+    p.fill('#nameIn', tag); p.click('#createBtn'); p.click('#dupNew'); p.click('#keyLater'); p.wait_for_selector('#vList:not([hidden])', timeout=15000)
     return p
 
 with sync_playwright() as pw:
@@ -60,29 +60,18 @@ with sync_playwright() as pw:
     A.click('#installSetBtn'); A.wait_for_timeout(300)
     check('the Settings button opens the dialog too', A.evaluate('window.__prompted') == 2)
 
-    # iPhone in Safari, opening an invite: told to use the Home Screen first, since
-    # Safari and the Home Screen app keep separate data, with the invite to copy.
     A.click('#back') if A.is_visible('#back') else None
     A.click('#inviteBtn'); A.wait_for_function("document.querySelector('#inviteLink').value.includes('#i=')"); link = A.input_value('#inviteLink')
-    ictx = b.new_context(bypass_csp=True, user_agent=IPHONE, viewport={'width': 390, 'height': 800}, is_mobile=True, has_touch=True, permissions=['clipboard-read', 'clipboard-write'])
-    J = ictx.new_page(); J.on('pageerror', lambda e: errs.append('J: ' + str(e))); J.on('dialog', lambda d: d.accept())
-    J.goto(link); J.wait_for_selector('#invitedBy:not([hidden])'); J.wait_for_function("document.body.dataset.setup === 'ready'")
-    check('iPhone Safari, before a profile: told to add to the Home Screen first', J.is_visible('#iosFirst') and J.is_visible('#iosCopyBtn'))
-    J.click('#iosCopyBtn'); J.wait_for_timeout(300)
-    copied = J.evaluate('navigator.clipboard.readText()')
-    check('the whole invite link is copied for pasting in the Home Screen app', copied == link)
-    J.click('#iosStay')
-    check('Use it in Safari instead hides the advice', not J.is_visible('#iosFirst'))
     # ...and the Home Screen app takes the pasted link.
     K = b.new_context(bypass_csp=True).new_page(); K.goto(U); K.wait_for_function("document.body.dataset.setup === 'ready'")
-    K.fill('#pasteInviteIn', copied); K.dispatch_event('#pasteInviteIn', 'input')
+    K.fill('#pasteInviteIn', link); K.dispatch_event('#pasteInviteIn', 'input')
     check('a pasted invite link is taken during setup', K.is_visible('#invitedBy'))
 
     I = start(b, 'I', user_agent=IPHONE, viewport={'width': 390, 'height': 800}, is_mobile=True, has_touch=True)
     I.wait_for_selector('#installCard:not([hidden])', timeout=5000)
     hint = I.text_content('#installHint')
-    check('iPhone with a profile in Safari: the card says how to add it and move the profile over: ' + repr(hint),
-          'Add to Home Screen' in hint and 'Move it here' in hint and 'screenshot' in hint and not I.is_visible('#installBtn'))
+    check('iPhone with a profile in Safari: the card says to add it and restore with the backup key: ' + repr(hint),
+          'Add to Home Screen' in hint and 'Restore from backup key' in hint and not I.is_visible('#installBtn'))
 
     check('no page errors' + (': ' + str(errs) if errs else ''), not errs)
     b.close()

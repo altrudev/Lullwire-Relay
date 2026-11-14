@@ -110,6 +110,12 @@ while [ "$left" -gt 0 ]; do
   parts="$parts $n"; left=$((left - n))
 done
 echo "  ok   large mailboxes are delivered in parts ($parts )"
+# Mail sent within the same second comes back in the order it arrived.
+osec=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n'); obox=$(printf %s "$osec" | sha256sum | cut -c1-32)
+pad=$(head -c 200 /dev/zero | tr '\0' x)  # relays refuse envelopes below their minimum size
+for i in $(seq -w 10 29); do curl -s -o /dev/null -H "X-Forwarded-For: 198.51.100.44" -X POST "$RURL?a=send" --data-binary "${obox}${pad}message-$i"; done
+order=$(curl -s -X POST "$RURL?a=get" -d "{\"s\":\"$osec\"}" | python3 -c 'import base64,json,sys; print(" ".join(base64.b64decode(x["d"]).decode()[-2:] for x in json.load(sys.stdin)))')
+[ "$order" = "$(seq -w 10 29 | tr '\n' ' ' | sed 's/ $//')" ] && echo "  ok   mail comes back in the order it arrived" || { echo "  FAIL mail out of order: $order"; exit 1; }
 curl -sL -D - -o /dev/null "${APP}index.html" | grep -qi "frame-ancestors 'none'" && echo "  ok   pages refuse to be framed" || { echo "  FAIL no frame-ancestors header"; exit 1; }
 # New recovery slots are rate limited per client (5 per day).
 codes=""
@@ -125,9 +131,11 @@ live() { curl -s -o /dev/null -w '%{http_code} ' -H "X-Forwarded-For: $1" -X POS
 # really waits: a relay answers never-used mailboxes within 3 s, which on a busy
 # machine can end the first requests before the last ones start.
 lsec=$(head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n'); lbox=$(printf %s "$lsec" | sha256sum | cut -c1-32)
-curl -s -o /dev/null -X POST "$RURL?a=send" --data-binary "${lbox}hello"
-lids=$(curl -s -X POST "$RURL?a=get" -d "{\"s\":\"$lsec\"}" | python3 -c 'import json,sys; print(json.dumps([x["id"] for x in json.load(sys.stdin)]))')
-curl -s -o /dev/null -X POST "$RURL?a=ack" -d "{\"s\":\"$lsec\",\"ids\":$lids}"
+# (From an address of its own: earlier tests have used up the usual one's allowance.)
+curl -s -o /dev/null -H "X-Forwarded-For: 198.51.100.45" -X POST "$RURL?a=send" --data-binary "${lbox}$(head -c 200 /dev/zero | tr '\0' x)"
+lids=$(curl -s -H "X-Forwarded-For: 198.51.100.45" -X POST "$RURL?a=get" -d "{\"s\":\"$lsec\"}" | python3 -c 'import json,sys; print(json.dumps([x["id"] for x in json.load(sys.stdin)]))')
+[ "$lids" != "[]" ] || { echo "  FAIL could not set up the live-cap mailbox"; exit 1; }
+curl -s -o /dev/null -H "X-Forwarded-For: 198.51.100.45" -X POST "$RURL?a=ack" -d "{\"s\":\"$lsec\",\"ids\":$lids}"
 burst=$( (for i in 1 2 3 4 5 6 7 8; do live 198.51.100.7 "$lsec" 10 & done; wait) )
 sleep 0.3; otherip=$(live 203.0.113.9)
 echo "$burst" | grep -q 429 && [ "$otherip" = "200 " ] && echo "  ok   live connections capped per client behind a proxy ($burst| other client: $otherip)" || { echo "  FAIL per-client live cap ($burst| other: $otherip)"; exit 1; }
@@ -180,6 +188,22 @@ if [ "$E2E" = 1 ]; then
   fi
   LOGAT=$(wc -l < "$TMP/server.log")
   BASE="$BASE" JOIN="$JOIN" python3 tests/e2e.py
+  # The backup key, on a fresh relay (new backups are limited per client per day):
+  # invite-only for the Go relay, as most private relays are.
+  if [ "$IMPL" = go ] || [ "$IMPL" = php ]; then
+    echo "== backup key (browsers)"
+    if [ "$IMPL" = go ]; then
+      "$TMP/lullwire-relay" -addr "localhost:$((PORT+7))" -data "$TMP/bk-data" -path /bk-private/ -join-code bk-join >>"$TMP/server.log" 2>&1 &
+      BKBASE="http://localhost:$((PORT+7))/bk-private/index.html"; BKJOIN=bk-join
+    else
+      LULLWIRE_DATA="$TMP/bk-data" php -S "localhost:$((PORT+7))" -t web scripts/router.php >>"$TMP/server.log" 2>&1 &
+      BKBASE="http://localhost:$((PORT+7))/index.html"; BKJOIN=
+    fi
+    BKPID=$!
+    for _ in $(seq 50); do curl -s -o /dev/null "$BKBASE" && break; sleep 0.1; done
+    BASE="$BKBASE" JOIN="$BKJOIN" python3 tests/backupkey.py
+    kill $BKPID 2>/dev/null || true
+  fi
   if [ "$IMPL" = go ]; then
     echo "== owner dashboard (browsers)"
     # A fresh relay of its own: it gets restarted from the app, in place.

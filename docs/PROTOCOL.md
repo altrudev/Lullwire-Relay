@@ -88,11 +88,16 @@ Message bodies are JSON with an authenticated timestamp: `{t: "msg", id, txt, ts
 | `?a=rdel` | `{"l", "t"}` | deletes a slot |
 | `?a=info` | `{}` | `{v: 2, invite: bool, calls: bool, mail: bool, owner: bool, push?: vapidKey}` (Go relay; the PHP relay answers 400, which the app reads as "open, no calls, no live connection, no owner dashboard") |
 | `?a=join` | `{"s": secret, "code"?}` | a member renews (no code needed) and gets `{ok, k: memberKey, shared: bool}`, plus `code: bool` when it sent one (does that shared code still admit people); a new mailbox needs the shared code (while on) or a single-use invite, which is used up; 403 otherwise |
+| `?a=join` | `{"s", "by": oldSecret, "transfer": true}` | hands a membership to a new mailbox (a profile restored on another device takes a fresh mailbox, so the copy it replaced stops receiving); the old mailbox stops being a member, its live connections close and its push subscriptions go; at most 6 per hour |
 | `?a=join` | `{"s", "by": memberSecret, "temp": true}` | a member admits a temporary mailbox for an hour (moving to a new device); at most 6 per member per hour; not listed or counted as a member |
 | `?a=owner` | `{"o": ownerToken, "op", …}` | the owner's dashboard (Go relay); see below |
 | `?a=push` | `{"s", "sub": PushSubscription.toJSON()}` or `{"s", "off": true, "endpoint"?}` | Web Push for this mailbox (Go relay with `-push`); see below |
 
 **Invite-only relays** (Go relay with `-join-code`) keep a list of member mailboxes, each with the day it joined (from 0.8) and its last activity. `put` to a non-member box answers 404 `unknown box`, so strangers can't use the relay as a free mailbox; `rput` needs the `s` of a member. `get` and `ack` for a non-member answer like an empty mailbox. The relay keeps `SHA-256("lullwire-join|" + code)` in memory, never the code. Wrong codes are limited to 10 per client per hour and 60 per minute overall; the right code is always accepted.
+
+**Mail ids** are the arrival time in seconds (10 digits), then microseconds (6 hex digits), then 3 random bytes in hex: 22 characters that sort in arrival order, so messages sent within the same second are fetched in order (before 0.8.2 the last 12 were random).
+
+**Backup key** (from 0.8.2). A file `{"lullwire": "backup-key", "v": 1, "name", "relay", "l", "t", "k"}` with a random slot locator `l` (16 bytes, hex), write token `t` (32 bytes, hex) and AES key `k` (32 bytes, base64url). It uses the recovery slot (`?a=rput` / `?a=rget`) like recovery words, with the additional data `"lullwire/backup-key:" + l`, and is kept up to date the same way. Restoring takes a fresh mailbox (`transfer` above on an invite-only relay), drains the old one, and sends each contact a session reset whose address card names the new mailbox.
 
 **Member key.** Every member gets the same random 32-byte member key from `join`. Send connections prove it (below), which shows the app belongs to a member without saying which. Removing a member changes the key; the others pick up the new one on their next renewal, which the app makes when a send connection is refused. Renewal needs only the mailbox secret, so changing or switching off the shared code never drops existing members.
 

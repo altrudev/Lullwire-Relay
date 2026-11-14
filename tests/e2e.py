@@ -28,7 +28,7 @@ def create(p, name):
     p.wait_for_function("document.body.dataset.setup === 'ready'")  # relay requirements are known
     p.fill('#nameIn', name)
     if p.is_visible('#joinIn'): p.fill('#joinIn', JOIN)
-    p.click('#createBtn'); p.click('#dupNew'); p.wait_for_selector('#vList:not([hidden]), #vChat:not([hidden])', timeout=15000)
+    p.click('#createBtn'); p.click('#dupNew'); p.click('#keyLater'); p.wait_for_selector('#vList:not([hidden]), #vChat:not([hidden])', timeout=15000)
 
 def home(p):
     while p.is_visible('#back'): p.click('#back')
@@ -51,7 +51,7 @@ with sync_playwright() as pw:
     B = page(b, 'B', link)
     B.wait_for_selector('#invitedBy:not([hidden])'); B.wait_for_function("document.body.dataset.setup === 'ready'")
     join_hidden = not B.is_visible('#joinIn')
-    B.fill('#nameIn', 'Bob'); B.click('#createBtn'); B.click('#dupNew'); B.wait_for_selector('#vChat:not([hidden])', timeout=15000)
+    B.fill('#nameIn', 'Bob'); B.click('#createBtn'); B.click('#dupNew'); B.click('#keyLater'); B.wait_for_selector('#vChat:not([hidden])', timeout=15000)
     print('1 invite link: Bob joined and is chatting with', B.text_content('#title'), '| join code hidden (came in the invite):', join_hidden)
     home(A); A.wait_for_selector('.contact:has-text("Bob")', timeout=15000)
     print('  Alice sees Bob as a contact, not a request:', A.locator('.contact:has-text("Bob") .tag').count() == 0)
@@ -165,7 +165,7 @@ with sync_playwright() as pw:
     print('5 recovery words on:', words)
 
     # 6. Move Alice's profile to a new phone (D) by scanning a picture of its move code.
-    D = page(b, 'D'); D.click('#pairBtn'); D.wait_for_function("document.querySelector('#pairQR').naturalWidth>0")
+    D = page(b, 'D'); D.click('details:has(#pairBtn) > summary'); D.click('#pairBtn'); D.wait_for_function("document.querySelector('#pairQR').naturalWidth>0")
     D.locator('#pairQR').screenshot(path=S + 'pair.png'); dcode = D.text_content('#pairCode')
     home(A); A.click('#scanBtn'); A.set_input_files('#scanFile', S + 'pair.png'); A.wait_for_selector('#vLink:not([hidden])')
     print('6 move codes match:', dcode == A.text_content('#linkCode'), dcode)
@@ -178,8 +178,11 @@ with sync_playwright() as pw:
     print('  Bob sees the new-device notice:', B.locator('.m.sys:has-text("new device")').count() > 0)
     say(B, 'got it'); D.wait_for_selector('.m.in:has-text("got it")', timeout=15000); print('  both ways after the move: OK')
 
-    # 7. Recover on yet another phone (E) with the words.
-    E = page(b, 'E'); E.fill('#recoverWords', words); E.click('#recoverBtn')
+    # 7. Recover on yet another phone (E) with the words. A restore replaces the copy it
+    # came from (D): E takes a fresh mailbox, so D is closed here, as the relay now
+    # turns it away (a 403 it would otherwise log).
+    D.context.close()
+    E = page(b, 'E'); E.click('details:has(#recoverWords) > summary'); E.fill('#recoverWords', words); E.click('#recoverBtn')
     E.wait_for_selector('.contact:has-text("Bob")', timeout=30000); print('7 recovered with words: OK')
     chat_with(E, 'Bob'); say(E, 'recovered'); B.wait_for_selector('.m.in:has-text("recovered")', timeout=15000); print('  E -> Bob: OK')
 

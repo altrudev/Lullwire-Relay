@@ -53,12 +53,12 @@ with sync_playwright() as pw:
     A.wait_for_function("document.querySelector('#pairQR').naturalWidth > 0", timeout=10000)
     check('Move it here opens the move screen with the code and steps', A.is_visible('#pairQR') and A.locator('#vPair ol.steps li').count() == 3)
     A.click('#pairCancel'); A.wait_for_selector('#vSetup:not([hidden])')
-    A.click('#createBtn'); A.click('#dupNew'); A.wait_for_selector('#vList:not([hidden])', timeout=15000)
+    A.click('#createBtn'); A.click('#dupNew'); A.click('#keyLater'); A.wait_for_selector('#vList:not([hidden])', timeout=15000)
     check('I\'m new creates the profile', A.is_visible('#vList'))
 
     A.click('#inviteBtn'); A.wait_for_function("document.querySelector('#inviteLink').value.includes('#i=')"); link = A.input_value('#inviteLink')
     B = page(b, 'B', link); B.wait_for_selector('#invitedBy:not([hidden])'); B.wait_for_function("document.body.dataset.setup === 'ready'")
-    B.fill('#nameIn', 'Bob'); B.click('#createBtn'); B.click('#dupNew'); B.wait_for_selector('#vChat:not([hidden])', timeout=15000)
+    B.fill('#nameIn', 'Bob'); B.click('#createBtn'); B.click('#dupNew'); B.click('#keyLater'); B.wait_for_selector('#vChat:not([hidden])', timeout=15000)
     home(A); A.wait_for_selector('.contact:has-text("Bob")', timeout=20000)
 
     # 2. Sounds: a chime for a message that isn't on screen.

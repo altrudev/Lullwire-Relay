@@ -40,16 +40,6 @@
       <h2>Private messages that stay between you</h2>
       <p>No phone number, no email, no account to hand over. Your keys are made on this device.</p>
     </div>
-    <div id="iosFirst" class="ios-first" hidden>
-      <strong>On iPhone, add Lullwire to your Home Screen first</strong>
-      <p class="small mt4">Safari and the Home Screen app keep separate data: a profile made here in Safari won't be in the Home Screen app, which would start empty.</p>
-      <ol class="steps small">
-        <li id="iosCopyStep" hidden><button id="iosCopyBtn" class="btn">Copy your invite link</button> to paste it there.</li>
-        <li>Tap <b>Share</b>, then <b>Add to Home Screen</b>.</li>
-        <li>Open Lullwire from your Home Screen<span id="iosPasteStep" hidden> and paste the invite link</span>, then create your profile there.</li>
-      </ol>
-      <p class="small"><a href="#" id="iosStay">Use it in Safari instead</a></p>
-    </div>
     <div id="invitedBy" class="invited" hidden><span id="invitedAvatar" class="avatar"></span><div><strong id="invitedName"></strong><div class="small muted">invited you. Create your profile to start talking.</div></div></div>
     <div class="card mt18">
       <label for="nameIn">Your name</label>
@@ -64,9 +54,10 @@
       </div>
       <p class="mt16"><button id="createBtn" class="btn primary block">Create profile</button></p>
       <div id="dupAsk" class="dup-ask" hidden>
-        <strong>Already use Lullwire on another phone or computer?</strong>
-        <p class="small muted mt4">Move that profile here instead: you keep the same account, contacts and invites. A new profile is a separate account, and people who know the old one won't reach you on it.</p>
-        <div class="row mt10"><button id="dupMove" class="btn primary">Move it here</button><button id="dupNew" class="btn">I'm new, create one</button></div>
+        <strong>Already use Lullwire?</strong>
+        <p class="small muted mt4">Bring your profile back with your backup key instead: same account, same contacts. A new profile is a separate account.</p>
+        <div class="row mt10"><label class="btn primary file-btn"><input id="keyFile2" type="file" hidden>Restore from backup key</label><button id="dupNew" class="btn">I'm new</button></div>
+        <p class="small mt8"><a href="#" id="dupMove">No backup key? Move it from your other device</a></p>
       </div>
       <details><summary>Advanced</summary>
         <label for="relayIn">Relay address</label>
@@ -76,8 +67,10 @@
     </div>
     <div class="card">
       <strong>Already have a profile?</strong>
-      <p class="small muted mt4">Move it from your other phone, or bring it back with your recovery words.</p>
-      <div class="row"><button id="pairBtn" class="btn">From my other device</button></div>
+      <p class="small muted mt4">Pick the backup key file you saved. Your profile and contacts come back.</p>
+      <label class="btn primary block file-btn mt10"><input id="keyFile" type="file" hidden>Restore from backup key</label>
+      <details class="mt10"><summary>Other ways</summary>
+      <div class="row mt10"><button id="pairBtn" class="btn">Move from my other device</button></div>
       <label for="recoverWords">Recovery words</label>
       <input id="recoverWords" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="your 8 words (or 6, from before version 0.6)">
       <p class="mt10"><button id="recoverBtn" class="btn block">Recover profile</button></p>
@@ -87,11 +80,17 @@
         <input id="restorePass" type="password" autocomplete="off">
         <p class="mt10"><button id="restoreBtn" class="btn block">Restore</button></p>
       </details>
+      </details>
     </div>
   </div></section>
 
   <!-- Contacts -->
   <section id="vList" class="view" hidden>
+    <div id="keyCard" class="install-card key-card narrow" hidden>
+      <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L21 2M17 6l3 3M14 9l2 2"/></svg>
+      <div class="grow"><strong>Save your backup key</strong><span class="small muted block">So you get your profile back on a new phone or after reinstalling.</span></div>
+      <button id="keyCardBtn" class="btn primary">Save</button>
+    </div>
     <div id="installCard" class="install-card narrow" hidden>
       <img src="icon-192.png" alt="" width="40" height="40">
       <div class="grow"><strong>Install Lullwire</strong><span class="small muted block" id="installHint">Opens like an app from its own icon, works offline, and can notify you.</span></div>
@@ -181,7 +180,6 @@
       <li>Check that both show the same number below, then tap <b>Approve</b> there.</li>
     </ol>
     <p class="small muted">No camera there (a computer)? Take a screenshot of this code, get it onto that device, then tap <b>Scan</b>, <b>Choose a picture</b>.</p>
-    <p class="small muted" id="pairIosSafari" hidden>Moving from Safari on this iPhone? Take a screenshot of this code, switch to Safari, open Lullwire there and tap <b>Scan</b>, <b>Choose a picture</b>, and pick the screenshot. Then come back here.</p>
     <img id="pairQR" class="qr" alt="Move code">
     <p class="small muted">Your other phone must show this same number:</p>
     <div id="pairCode" class="code-big"></div>
@@ -237,6 +235,15 @@
       </div>
       <p class="mt18 small"><a href="#" id="ownerForgetBtn">Remove owner access from this device</a></p>
     </div>
+  </div></section>
+
+  <section id="vKey" class="view" hidden><div class="narrow pad center-text">
+    <svg class="illus" viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="#0e7a68" stroke-width="1.6" stroke-linecap="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L21 2M17 6l3 3M14 9l2 2"/></svg>
+    <h2>Save your backup key</h2>
+    <p class="muted">It's a small file that brings your profile back on a new phone, another browser or after reinstalling. Keep it in your Files or Downloads.</p>
+    <p class="small muted">Keep it private: whoever has it can open your profile.</p>
+    <p class="mt18"><button id="keySaveBtn" class="btn primary block">Save backup key</button></p>
+    <p class="mt10 small"><a href="#" id="keyLater">Later</a></p>
   </div></section>
 
   <section id="vSettings" class="view" hidden><div class="narrow pad">
@@ -316,6 +323,13 @@
         <input id="bp2" type="password" autocomplete="new-password">
         <p class="mt10"><button id="exportBtn" class="btn">Download backup</button></p>
       </details>
+    </div>
+
+    <h3>Backup key</h3>
+    <div class="card">
+      <p class="small muted">A small file that brings your profile back on a new phone, another browser or after reinstalling. It updates itself; save it once and keep it private.</p>
+      <div class="row mt10"><button id="keySettingsBtn" class="btn primary">Save backup key</button></div>
+      <p class="small mt8"><a href="#" id="keyNewBtn">Make a new key</a> <span class="muted">(if your file got out: the old one stops working)</span></p>
     </div>
 
     <div id="installSetWrap" hidden>

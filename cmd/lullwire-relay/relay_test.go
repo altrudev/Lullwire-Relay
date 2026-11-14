@@ -825,3 +825,30 @@ func TestSendInviteOnly(t *testing.T) {
 		t.Errorf("send to member = %d", rec.Code)
 	}
 }
+
+// Mail sent within the same second comes back in the order it arrived (a session reset
+// followed at once by the first message of the new session must not swap places).
+func TestSameSecondOrder(t *testing.T) {
+	_, h := newTestRelay(t, false)
+	box := boxOf(secret(1))
+	for i := 0; i < 30; i++ {
+		body := blob(100)
+		body = body[:len(body)-2] + fmt.Sprintf("%02d", i)
+		do(h, call{url: "/relay.php?a=put&box=" + box, body: body})
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/relay.php?a=get", strings.NewReader(`{"s":"`+secret(1)+`"}`)))
+	var got []struct{ ID, D string }
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got) != 30 {
+		t.Fatalf("get: %v %d", err, len(got))
+	}
+	for i, m := range got {
+		if len(m.ID) != 22 || !isHex(m.ID, 22) {
+			t.Fatalf("id %q", m.ID)
+		}
+		raw, _ := base64.StdEncoding.DecodeString(m.D)
+		if want := fmt.Sprintf("%02d", i); !strings.HasSuffix(string(raw), want) {
+			t.Fatalf("message %d came back as %q...: out of order", i, string(raw[len(raw)-2:]))
+		}
+	}
+}

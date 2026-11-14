@@ -190,7 +190,10 @@ if ($a === 'put' || $a === 'send') {
     if (count($files) >= MAX_PER_BOX) fail(429, 'box full');
     $bytes = 0; foreach ($files as $f) $bytes += (int)@filesize($f);
     if ($bytes + strlen($body) > MAX_BOX_BYTES) fail(429, 'box full');
-    $id = sprintf('%010d', time()) . bin2hex(random_bytes(6));
+    // Seconds, then microseconds (6 hex digits), then a random tiebreak: ids sort in the
+    // order mail arrived, so two messages sent in the same second are fetched in order.
+    [$usec, $sec] = explode(' ', microtime());
+    $id = sprintf('%010d%06x', (int)$sec, (int)round((float)$usec * 1000000) % 1000000) . bin2hex(random_bytes(3));
     file_put_contents("$dir/$id.tmp", $body);
     rename("$dir/$id.tmp", "$dir/$id.m");
     if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
