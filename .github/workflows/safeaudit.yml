@@ -1,0 +1,38 @@
+name: safeaudit
+# Runs on every push and PR, automatically — no human and no agent needed.
+# Fails the build (red check) when safeaudit reports any HIGH finding.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Vendored, self-contained — no external action to trust (supply-chain
+      # lesson: don't add a dependency you can't audit).
+      - name: Run safeaudit
+        run: |
+          chmod +x ./safeaudit.sh
+          ./safeaudit.sh .
+
+      # Optional deeper coverage — mature scanners, non-blocking here so safeaudit
+      # stays the hard gate. Promote any of these to blocking when you're ready.
+      - name: gitleaks (secrets)
+        if: always()
+        run: docker run --rm -v "$PWD:/x" zricethezav/gitleaks:latest detect -s /x --no-banner || true
+
+      - name: trivy (vulns, misconfig, secrets)
+        if: always()
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '0'   # set to '1' to make trivy blocking too
